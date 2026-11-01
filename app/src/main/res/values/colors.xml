@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ic_launcher_background">#4F46E5</color>
+    <!-- The logo's own off-white, so the circular graphic sits on a matching field inside any launcher mask. -->
+    <color name="ic_launcher_background">#FDFDFD</color>
 </resources>
