@@ -148,6 +148,100 @@ class EngineTest {
     }
 }
 
+class BookTest {
+    private fun outsiders(grade: Grade = Grade.G8, standard: String = "The Outsiders", custom: String = "") = LessonRequest(grade, Subject.ELA, standard, custom)
+
+    @Test fun theOutsidersIsRecognizedFromTheTopicBoxTheBookFieldOrTheCustomPrompt() {
+        for (r in listOf(
+            outsiders(),
+            outsiders(standard = "novel study: The Outsiders"),
+            outsiders(standard = "The Outsiders by S. E. Hinton"),
+            outsiders(standard = "", custom = "A unit on \"The Outsiders\" for my 8th graders").copy(),
+            LessonRequest(Grade.G8, Subject.ELA, bookTitle = "the outsiders"),
+        )) {
+            val b = StandardResolver.resolve(r).book
+            assertEquals("The Outsiders", b?.title)
+            assertEquals("S. E. Hinton", b?.author)
+        }
+    }
+
+    @Test fun commonWordsAreNotMistakenForBooks() {
+        assertEquals(null, StandardResolver.resolve(LessonRequest(Grade.G5, Subject.ELA, "I wonder about holes in the ground")).book)
+        assertEquals(null, StandardResolver.resolve(LessonRequest(Grade.G4, Subject.MATH, "fractions by Ms. lee")).book)
+        assertEquals("Holes", StandardResolver.resolve(LessonRequest(Grade.G6, Subject.ELA, "Holes")).book?.title)
+    }
+
+    @Test fun aBookMapsToTheGradesLiteratureStandardNotAGenericOne() {
+        val r = StandardResolver.resolve(outsiders(Grade.G8))
+        assertEquals("RL.8.2", r.standard?.shortCode)
+        assertEquals("ELAGSE8RL2", r.standard?.georgiaCode)
+        assertEquals("The Outsiders", r.topic)
+        val evidence = StandardResolver.resolve(outsiders(Grade.G8, custom = "Focus on citing textual evidence"))
+        assertEquals("RL.8.1", evidence.standard?.shortCode)
+        assertEquals("ELAGSE9-10RL2", StandardResolver.resolve(LessonRequest(Grade.G9, Subject.ELA, "The Outsiders")).standard?.georgiaCode)
+    }
+
+    @Test fun everyIdeaIsAboutTheBookAndItsStandard() {
+        val r = outsiders(custom = "Several English learners")
+        val res = StandardResolver.resolve(r)
+        val seen = mutableListOf<SeenIdea>()
+        val titles = mutableSetOf<String>()
+        repeat(3) {
+            val ideas = IdeaEngine.generate(r, res, seen)
+            assertEquals(3, ideas.size)
+            ideas.forEach { i ->
+                assertTrue("title: ${i.title}", i.title.contains("The Outsiders"))
+                assertTrue(i.summary.contains("The Outsiders by S. E. Hinton"))
+                assertTrue(i.summary.contains("ELAGSE8RL2"))
+                assertTrue(i.summary.contains("English learners"))
+                assertTrue("not generic: ${i.summary}", !i.summary.contains("real problem") && !i.summary.contains("station"))
+                assertTrue(titles.add(i.title))
+            }
+            seen += ideas.map { SeenIdea(it.title, it.hook, it.summary, it.lens) }
+        }
+        assertTrue(seen.any { it.summary.contains("Ponyboy") || it.summary.contains("Greasers") || it.summary.contains("Tulsa") || it.summary.contains("social class") })
+    }
+
+    @Test fun theLessonCitesTheBookAndNeverInventsPlotForAnUnknownOne() {
+        val r = outsiders()
+        val res = StandardResolver.resolve(r)
+        val lesson = LessonBuilder.build(r, res, IdeaEngine.generate(r, res, emptyList()).first())
+        assertTrue(lesson.materials.first().contains("The Outsiders by S. E. Hinton"))
+        assertEquals(1, lesson.materials.count { it.contains("required text") })
+        assertTrue(lesson.items.any { it.prompt.contains("Ponyboy") || it.prompt.contains("Johnny") })
+        assertTrue(lesson.items.all { it.prompt.isNotBlank() })
+        assertTrue(lesson.objective.contains("The Outsiders"))
+        assertEquals("The Outsiders", lesson.book?.title)
+
+        val unknown = LessonRequest(Grade.G7, Subject.ELA, "The Moonlit Road by A. Writer")
+        val ures = StandardResolver.resolve(unknown)
+        assertEquals(null, ures.book?.info)
+        val ul = LessonBuilder.build(unknown, ures, IdeaEngine.generate(unknown, ures, emptyList()).first())
+        assertTrue(ul.materials.first().contains("The Moonlit Road by A. Writer"))
+        assertTrue(IdeaEngine.generate(unknown, ures, emptyList()).all { it.summary.contains("your own copy") })
+        assertTrue(ul.items.none { it.prompt.contains("Ponyboy") })
+    }
+
+    @Test fun bookLessonsKeepTheSentenceLimitsAndEarlyGuards() {
+        for (grade in Grade.entries) for (title in listOf("The Outsiders", "Brown Bear, Brown Bear, What Do You See?", "Charlotte's Web")) {
+            val r = LessonRequest(grade, Subject.ELA, title)
+            val res = StandardResolver.resolve(r)
+            val lesson = LessonBuilder.build(r, res, IdeaEngine.generate(r, res, emptyList()).first())
+            if (grade.isEarly) {
+                val taught = LessonBuilder.taughtWords(res).toSet() + setOf("dots")
+                lesson.items.forEach { assertTrue("$grade $title ${it.prompt}", EarlyGuard.problems(it.prompt.replace("___", " "), taught).isEmpty()) }
+            } else lesson.items.forEach { item -> Text.sentences(item.prompt).forEach { s -> assertTrue("$grade \"$s\"", Readability.wordCount(s) <= Readability.maxWords(grade)) } }
+        }
+    }
+
+    @Test fun theBookSurvivesSaveAndLoad() {
+        val r = outsiders()
+        val res = StandardResolver.resolve(r)
+        val lesson = LessonBuilder.build(r, res, IdeaEngine.generate(r, res, emptyList()).first())
+        assertEquals(lesson, LessonCodec.decode(LessonCodec.encode(lesson)))
+    }
+}
+
 class CodecTest {
     @Test fun lessonsSurviveTheRoundTripIncludingAwkwardText() {
         val r = LessonRequest(Grade.K, Subject.MATH, "counting", "He said \"count\" and\nwent on \\ tab\t")

@@ -117,6 +117,7 @@ object LessonHtml {
         append(".item{margin:14px 0}.line{border-bottom:1px solid #333;height:26px;margin-top:8px}.box{border:2px dashed #666;height:110px;margin-top:8px}.dots{font-size:26px;letter-spacing:6px}")
         append(".script{background:#eef;border-left:4px solid #447;padding:8px;margin:8px 0}.pb{page-break-before:always}</style></head><body>")
         append("<h1>${esc(l.title)}</h1>")
+        l.book?.let { append("<p><b>Book:</b> ${esc(it.describe())}</p>") }
         append("<p><b>${esc(l.grade.label)} &middot; ${esc(l.subject.label)}</b> &middot; ${esc(l.standardLabel)} &middot; ${l.totalMinutes} minutes</p>")
         append("<h2>Objective (${esc(l.objectiveBloom.label)})</h2><p>${esc(l.objective)}</p>")
         append("<h2>Materials</h2><ul>${l.materials.joinToString("") { "<li>${esc(it)}</li>" }}</ul>")

@@ -42,6 +42,48 @@ object IdeaEngine {
         "a set of student-collected observations", "a model paragraph to study and imitate",
     )
 
+    /** Ways of working with a book's own text. A book lesson draws its approach from these, so every idea is about reading and citing the book. */
+    internal class TextWork(val name: String, val product: String, val doing: (BookRef) -> String)
+
+    private fun chars(b: BookRef, n: Int = 2): String = b.characters.take(n).let { if (it.isEmpty()) "a main character" else it.joinToString(" and ") }
+    private fun theme(b: BookRef, i: Int = 0): String = b.themes.getOrNull(i) ?: "a theme the class chooses"
+
+    internal val TEXT_WORKS = listOf(
+        TextWork("close reading of a key passage", "an annotated passage") { "reread a key passage from ${it.title}, mark the strongest words, and explain what they show" },
+        TextWork("character study", "a character map with a quote for each choice") { "follow ${chars(it)} through ${it.title} and track how their choices and feelings change" },
+        TextWork("theme tracing", "a theme tracker with three pieces of evidence") { "trace ${theme(it)} through ${it.title} and collect quotes from three places in the book" },
+        TextWork("evidence-based debate", "a one-minute argument with two quotes") { "take a side on a question from ${it.title} and defend it with quotes from the text" },
+        TextWork("setting and conflict study", "a setting-and-conflict chart") { "study ${it.info?.setting ?: "the setting"} in ${it.title} and how it shapes what happens" },
+        TextWork("writing from the text", "a paragraph with embedded quotes") { "write a response about ${theme(it, 1)} that quotes ${it.title} to support each idea" },
+        TextWork("then and now comparison", "a compare table with evidence") { "compare how ${chars(it, 1)} acts early and late in ${it.title}, using evidence from each part" },
+    )
+
+    private fun bookDrafts(request: LessonRequest, resolution: Resolution, book: BookRef, needs: CustomNeeds, seen: List<SeenIdea>, used: List<Lens>, key: String, count: Int): List<Idea> {
+        val rng = Text.rng(key)
+        val recent = used.takeLast(count)
+        val works = fresh(TEXT_WORKS.map { it.name }, used.map { it.angle }, count, recent.map { it.angle }).shuffled(rng).take(count).map { n -> TEXT_WORKS.first { it.name == n } }
+        val titleStyles = BOOK_TITLES.indices.shuffled(rng).take(count)
+        val questions = book.info?.questions ?: emptyList()
+        return works.mapIndexed { i, w ->
+            val q = if (questions.isNotEmpty()) questions[(seen.size + i) % questions.size] else null
+            val standardNote = resolution.standard?.let { " It addresses ${it.georgiaCode} (${it.ccss})." } ?: ""
+            val coreText = "Core text: ${book.describe()}${book.info?.let { " (${it.genre})" } ?: ""}."
+            val knowNote = if (book.known) "" else " Chapters and passages come from your own copy: add the ones you want students to cite."
+            val supportNote = needs.supports.firstOrNull()?.let { " Built for your students: ${Text.decap(it)}" } ?: ""
+            val themeNote = needs.themes.firstOrNull()?.let { " Your theme, $it, frames the activities." } ?: ""
+            val build = resolution.standard?.let { " They build toward: ${Text.decap(it.description.removeSuffix("."))}." } ?: ""
+            val title = Text.clip(BOOK_TITLES[titleStyles[i]](book.title, Text.cap(w.name)), 80)
+            val hook = if (q != null) "Open with a question from the book and let students answer from memory first: $q" else "Read the opening page of ${book.title} aloud and ask students to predict what kind of story it will be."
+            val summary = "Students ${w.doing(book)}, and finish with ${w.product}.$build$standardNote $coreText$themeNote$supportNote$knowNote"
+            Idea(title, summary.replace("  ", " ").trim(), hook, Lens(w.name, "a question from the book", book.title, book.describe()))
+        }
+    }
+
+    private val BOOK_TITLES = listOf(
+        { t: String, a: String -> "$t: $a" }, { t: String, a: String -> "$a in $t" }, { t: String, a: String -> "$t Through $a" },
+        { t: String, a: String -> "$a for $t" }, { t: String, a: String -> "$t, Page by Page: $a" },
+    )
+
     private val TITLES = listOf(
         { t: String, a: String -> "$t: The $a" }, { t: String, a: String -> "$a for $t" }, { t: String, a: String -> "Inside $t: A $a" },
         { t: String, a: String -> "The $t $a" }, { t: String, a: String -> "$t Through a $a" }, { t: String, a: String -> "A $a About $t" },
@@ -62,12 +104,20 @@ object IdeaEngine {
         val needs = CustomPrompt.read(request.customPrompt)
         val usesTexts = request.subject != Subject.MATH
         val used = seen.map { it.lens }
-        val key = "${request.grade}|${request.subject}|${request.standardInput}|${request.customPrompt}|${seen.size}"
+        val key = "${request.grade}|${request.subject}|${request.standardInput}|${request.customPrompt}|${request.bookTitle}|${seen.size}"
+        val book = resolution.book
 
         // Redraft with a new seed until nothing echoes an earlier idea or another new one (a few tries, then the best drafts available).
         var best: List<Idea> = emptyList()
         var bestBad = Int.MAX_VALUE
         for (attempt in 0 until 6) {
+            if (book != null) {
+                val drafts = bookDrafts(request, resolution, book, needs, seen, used, "$key|$attempt", count)
+                val bad = echoes(drafts.map { Overlap(it.title, it.hook, it.summary) }, seen.map { Overlap(it.title, it.hook, it.summary) }).size
+                if (bad < bestBad) { best = drafts; bestBad = bad }
+                if (bad == 0) break
+                continue
+            }
             val rng = Text.rng("$key|$attempt")
             val recent = used.takeLast(count)
             val angles = fresh(ANGLES.map { it.name }, used.map { it.angle }, count, recent.map { it.angle }).shuffled(rng).take(count)

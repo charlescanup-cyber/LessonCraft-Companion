@@ -71,6 +71,19 @@ fun CreateScreen(vm: CreateViewModel, onIdeas: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            // Optional: the book the lesson is built on. A title typed in the box above ("The Outsiders by S. E. Hinton") is picked up too.
+            OutlinedTextField(
+                value = ui.bookTitle,
+                onValueChange = vm::setBook,
+                label = { Text("Book title (optional)") },
+                placeholder = { Text("The Outsiders") },
+                supportingText = { Text("Ideas, standards and handout items are then built on this book.") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
             // Large, conversational: the lesson's vision and the students' needs.
             OutlinedTextField(
                 value = ui.customPrompt,
@@ -93,7 +106,7 @@ fun CreateScreen(vm: CreateViewModel, onIdeas: () -> Unit) {
         }
 
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (!ui.canSubmit) Text("Add a topic or standard, or describe what you want.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (!ui.canSubmit) Text("Add a topic, standard or book, or describe what you want.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(
                 onClick = { focus.clearFocus(); vm.getIdeas(again = false, onReady = onIdeas) },
                 enabled = ui.canSubmit && !ui.busy,

@@ -49,8 +49,10 @@ data class LessonRequest(
     val subject: Subject,
     val standardInput: String = "",
     val customPrompt: String = "",
+    /** Optional: the book or novel the lesson is built on ("The Outsiders"). It can also be typed in the topic box as "Title by Author". */
+    val bookTitle: String = "",
 ) {
-    val hasInput: Boolean get() = standardInput.isNotBlank() || customPrompt.isNotBlank()
+    val hasInput: Boolean get() = standardInput.isNotBlank() || customPrompt.isNotBlank() || bookTitle.isNotBlank()
 }
 
 /** An official standard from the built-in catalog. */
@@ -143,6 +145,8 @@ data class Lesson(
     val items: List<StudentItem>,
     val differentiation: Differentiation,
     val tags: List<String>,
+    /** The book the lesson is built on, if any. */
+    val book: BookRef? = null,
 ) {
     val totalMinutes: Int get() = sequence.sumOf { it.minutes }
     val standardLabel: String get() = standard?.let { "${it.georgiaCode} (${it.ccss})" } ?: "No catalog standard matched"

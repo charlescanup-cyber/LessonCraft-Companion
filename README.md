@@ -10,13 +10,18 @@ A native Android app (Kotlin, Jetpack Compose) for planning lessons on the go. I
 - **Library** with air-gapped **search**, **favorites** and your own **folders** to organize plans.
 - **Print and Export** (Android print / Save as PDF, and share as HTML) are part of the **web app's Bundle subscription**. On the free plan they open a prompt that hands off to the Bundle page in the browser. Everything else is free.
 
+## Books
+
+Give the Create screen a book (the optional **Book title** field, or "The Outsiders by S. E. Hinton" in the topic box, or a quoted title in your instructions) and the whole plan is built on it: the book is the one required text, the standard becomes the grade's literature standard (theme by default, or evidence, character or setting if your words point there), every idea is a way of working with the book's own text, and every handout item is answered from the book. Nine popular books are built in (`Books.kt`) with their author, setting, main characters, themes and text-based discussion questions. For any other title the app names the book but does not invent plot, characters or chapters: it asks you to add the passages from your own copy.
+
 ## The local rule engine (`:engine`)
 
 `engine/` is plain Kotlin with no Android and no network code, so it runs and tests on any JVM. No model is called anywhere: the same request and session history always produce the same ideas.
 
 | File | Role |
 |---|---|
-| `StandardsCatalog.kt` | Built-in Common Core standards (K-5 starter set) with Georgia codes derived from them; resolves codes in CCSS or Georgia form, or the closest match by keywords |
+| `Books.kt` | Built-in book catalog and the resolver that finds the book in the form fields |
+| `StandardsCatalog.kt` | Built-in Common Core standards (K-5 and ELA literature 6-10) with Georgia codes derived from them; resolves codes in CCSS or Georgia form, or the closest match by keywords |
 | `IdeaEngine.kt` | Deterministic ideas: seeded from request plus history, excludes used lenses, redrafts when a draft echoes an earlier idea |
 | `LessonBuilder.kt` | Objective, Bloom-ordered sequence, UDL, differentiation, and grade-specific handout items |
 | `Guardrails.kt` | Reading-level limits, **Kindergarten and Grade 1 guard** (decodable student text, only printable task types, teacher scripts for anything spoken), Bloom's mix by grade band, custom-prompt reader |

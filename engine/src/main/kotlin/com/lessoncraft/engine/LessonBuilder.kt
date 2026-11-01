@@ -13,9 +13,9 @@ object LessonBuilder {
         val standard = resolution.standard
         val focus = focusPhrase(resolution)
         val level = BloomPlan.levelOf(standard?.description ?: "")
-        val objective = objective(resolution, focus)
+        val objective = objective(resolution, focus) + (resolution.book?.let { " Evidence comes from ${it.describe()}." } ?: "")
         val sequence = sequence(grade, idea, resolution, focus, needs, level)
-        val items = if (grade.isEarly) earlyItems(request, focus, resolution, needs) else laterItems(request, idea, focus, needs)
+        val items = if (grade.isEarly) earlyItems(request, focus, resolution, needs) else if (resolution.book != null) bookItems(grade, resolution.book) else laterItems(request, idea, focus, needs)
         // Final line of defense: Kindergarten and Grade 1 student text must pass the guard, or it becomes a safe teacher-led task.
         val taught = (if (grade.isEarly) taughtWords(resolution) else emptyList()).toSet() + setOf("dots")
         val safeItems = if (grade.isEarly) items.map { enforceEarly(it, taught) } else items
@@ -28,7 +28,7 @@ object LessonBuilder {
             customNotes = needs.notes,
             objective = objective,
             objectiveBloom = if (standard != null) level else Bloom.UNDERSTAND,
-            materials = materials(request, needs, idea),
+            materials = materials(request, needs, idea, resolution.book),
             udlPlan = Udl(
                 "Offer a choice in how students show learning and connect ${focus} to their own lives.${needs.supports.firstOrNull()?.let { " $it" } ?: ""}",
                 "Present ${focus} three ways: spoken, written and hands-on. Pre-teach key words and point out patterns.",
@@ -42,6 +42,7 @@ object LessonBuilder {
                 enrichment = "Extend one Bloom's level higher: students ${extension(grade)} about $focus.",
             ),
             tags = tags(request, resolution, needs, idea),
+            book = resolution.book,
         )
     }
 
@@ -54,6 +55,7 @@ object LessonBuilder {
 
     /** A few plain words naming what the lesson is about, safe to drop into a sentence. */
     fun focusPhrase(resolution: Resolution): String {
+        resolution.book?.let { return it.title }
         resolution.standard?.let { return it.focus }
         val words = Text.words(resolution.topic).filter { it.length > 2 && it !in STOP_FOCUS }.take(3)
         return words.joinToString(" ").ifBlank { "this topic" }
@@ -88,7 +90,7 @@ object LessonBuilder {
             ),
             Step(
                 "Direct Instruction", 10, "Teach $focus",
-                "Model $focus with a worked example, thinking aloud. Name the key words. Pause twice to check understanding, then have students explain the idea to a partner.${resolution.standard?.let { " Keep the standard in view: ${Text.clip(it.description, 110)}" } ?: ""}",
+                "Model $focus ${if (resolution.book != null) "with a short passage read aloud and a thinking-aloud talk about what the words show" else "with a worked example, thinking aloud"}. Name the key words. Pause twice to check understanding, then have students explain the idea to a partner.${resolution.standard?.let { " Keep the standard in view: ${Text.clip(it.description, 110)}" } ?: ""}",
                 Bloom.UNDERSTAND,
                 udl("Connect the example to something students care about.", "Show the example spoken, written and with objects.", "Students show understanding by telling a partner, not only by writing."),
             ),
@@ -107,12 +109,15 @@ object LessonBuilder {
         )
     }
 
-    private fun materials(request: LessonRequest, needs: CustomNeeds, idea: Idea): List<String> {
-        val m = mutableListOf("Student handout (printed or on a device)", "Pencils and paper for drawing and notes", "Chart paper or a board for the shared example")
+    private fun materials(request: LessonRequest, needs: CustomNeeds, idea: Idea, book: BookRef?): List<String> {
+        val m = mutableListOf<String>()
+        // One required text: the book itself. Nothing else is offered as a second required text.
+        if (book != null) m += "Class copies of ${book.describe()} (the one required text)"
+        m += listOf("Student handout (printed or on a device)", "Pencils and paper for drawing and notes", "Chart paper or a board for the shared example")
         when (request.subject) {
             Subject.MATH -> m += "Counters, cubes or other objects students can move"
             Subject.SCIENCE -> m += "Everyday objects for observing, and a place to record what students notice"
-            Subject.ELA -> m += "One mentor text of your choice that fits the standard${idea.lens.text?.let { " (${it})" } ?: ""}"
+            Subject.ELA -> if (book == null) m += "One mentor text of your choice that fits the standard${idea.lens.text?.let { " (${it})" } ?: ""}"
             Subject.SOCIAL_STUDIES -> m += "A short source or text of your choice that fits the standard"
         }
         if (needs.supports.any { it.contains("Hands-on") }) m += "Manipulatives for every pair"
@@ -122,7 +127,8 @@ object LessonBuilder {
 
     private fun tags(request: LessonRequest, resolution: Resolution, needs: CustomNeeds, idea: Idea): List<String> {
         val t = linkedSetOf(request.subject.label, request.grade.label, request.grade.band.label)
-        resolution.standard?.let { t += it.shortCode; t += it.georgiaCode; t += it.focus }
+        resolution.book?.let { t += it.title; it.author?.let { a -> t += a }; it.info?.genre?.let { g -> t += g } }
+        resolution.standard?.let { t += it.shortCode; t += it.georgiaCode; if (resolution.book == null) t += it.focus }
         needs.themes.forEach { t += it }
         t += idea.lens.angle
         if (resolution.standard == null) Text.words(resolution.topic).filter { it.length > 3 && it !in STOP_FOCUS }.take(3).forEach { t += it }
@@ -146,6 +152,7 @@ object LessonBuilder {
     )
 
     internal fun taughtWords(resolution: Resolution): List<String> {
+        resolution.book?.info?.earlyWords?.takeIf { it.isNotEmpty() }?.let { w -> return (w + FALLBACK_WORDS).distinct().take(2) }
         resolution.standard?.let { s -> EARLY_WORDS[s.shortCode]?.let { return it } }
         val candidates = (Text.words(resolution.topic) + (resolution.standard?.keywords?.flatMap { Text.words(it) } ?: emptyList()))
             .filter { it.matches(Regex("[a-z]{3,7}")) && it !in STOP_FOCUS }
@@ -200,6 +207,39 @@ object LessonBuilder {
         val problems = EarlyGuard.problems(item.prompt.replace("___", " "), taught)
         if (problems.isEmpty()) return item
         return item.copy(kind = ItemKind.TEACHER_ORAL, prompt = EarlyGuard.SAFE_STUDENT_LINE, teacherScript = "${EarlyGuard.SCRIPT_TAG} ${EarlyGuard.SAFE_SCRIPT}", answer = "Answers vary.", visual = null)
+    }
+
+    /* ---------- A book-based handout: every item is answered from the text ---------- */
+
+    /** Student text for grades with short sentence limits says "the book"; older grades name it. */
+    private fun bookItems(grade: Grade, book: BookRef): List<StudentItem> {
+        val ladder = BloomPlan.ladder(grade.band, 6)
+        val ref = if (grade.ordinal <= Grade.G3.ordinal) "the book" else book.title
+        val people = book.characters
+        val a = people.getOrNull(0) ?: "a main character"
+        // The second character is a contrast to the first (the last one named), so comparisons and new scenes have something to work with.
+        val b = people.takeIf { it.size > 1 }?.let { it[if (it.size > 4) 4 else it.size - 1] } ?: "another character"
+        val th = book.themes.getOrNull(0) ?: "a theme"
+        val q = book.info?.questions?.getOrNull(0)
+        val short = grade.ordinal <= Grade.G3.ordinal
+        fun make(level: Bloom): Pair<String, String> = when (level) {
+            Bloom.REMEMBER -> (if (short) "Name two people in $ref." else "Name three characters in $ref. Write one fact about each.") to
+                "Accurate names from the text${if (people.isNotEmpty()) " (for example ${people.take(3).joinToString(", ")})" else ""}, each with a fact the book supports."
+            Bloom.UNDERSTAND -> (if (short) "Tell what $ref is about. Use two sentences." else "Explain the theme of $th in $ref. Finish: In $ref, ___ shows $th because ___.") to
+                "An explanation in the student's own words that names $th and points to something that happens in the book."
+            Bloom.APPLY -> (if (short) "Find a line in $ref. Copy it. Say where." else "Find a quote from $ref that shows $th. Copy it exactly. Say where it is.") to
+                "A quote copied exactly from the student's copy, with its location, that really does show $th."
+            Bloom.ANALYZE -> (if (short) "Compare two people in $ref. Make a table." else "Compare $a and $b in a table: alike and different. Give one quote for each.") to
+                "At least two accurate likenesses and two differences between $a and $b (or the two characters chosen), each backed by a quote."
+            Bloom.EVALUATE -> (if (q != null && !short) "$q Give two reasons. Use evidence from the text." else "Which choice in $ref matters most? Give two reasons.") to
+                "A clear position supported by two reasons that cite the text. Answers vary; score the evidence, not the opinion."
+            Bloom.CREATE -> (if (short) "Write a new scene for $ref. Keep the voices true." else "Write a new scene for $ref where $a meets $b. Keep their voices true to the book.") to
+                "An original scene that keeps the characters' voices and the book's setting consistent with the text."
+        }
+        return ladder.mapIndexed { i, level ->
+            val (p, ans) = make(level)
+            StudentItem(i + 1, when (level) { Bloom.ANALYZE -> ItemKind.DATA_TABLE; Bloom.UNDERSTAND -> ItemKind.SENTENCE_FRAME; else -> ItemKind.QUESTION }, p, level, ans)
+        }
     }
 
     /* ---------- Grade 2 and up ---------- */

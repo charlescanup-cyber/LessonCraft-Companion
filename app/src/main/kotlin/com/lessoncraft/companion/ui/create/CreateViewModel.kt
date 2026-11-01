@@ -21,6 +21,7 @@ import kotlinx.coroutines.withContext
 
 const val STANDARD_MAX = 300
 const val CUSTOM_MAX = 1500
+const val BOOK_MAX = 120
 
 data class CreateUi(
     val grade: Grade = Grade.G4,
@@ -29,6 +30,8 @@ data class CreateUi(
     val standardInput: String = "",
     /** Free-form conversational layer: a lesson vision, theme or student needs. */
     val customPrompt: String = "",
+    /** Optional: the book or novel the lesson is built on. */
+    val bookTitle: String = "",
     val ideas: List<Idea> = emptyList(),
     val rounds: Int = 0,
     /** What the standard box was understood as ("Matched RL.1.2"), shown under the field. */
@@ -37,7 +40,7 @@ data class CreateUi(
     val busy: Boolean = false,
 ) {
     /** Either box, or both, is enough. */
-    val canSubmit: Boolean get() = standardInput.isNotBlank() || customPrompt.isNotBlank()
+    val canSubmit: Boolean get() = standardInput.isNotBlank() || customPrompt.isNotBlank() || bookTitle.isNotBlank()
 }
 
 /**
@@ -52,9 +55,10 @@ class CreateViewModel(private val container: AppContainer) : ViewModel() {
     fun setGrade(g: Grade) = _ui.update { it.copy(grade = g, understood = null) }
     fun setSubject(s: Subject) = _ui.update { it.copy(subject = s, understood = null) }
     fun setStandard(v: String) = _ui.update { it.copy(standardInput = v.take(STANDARD_MAX), understood = null, error = null) }
+    fun setBook(v: String) = _ui.update { it.copy(bookTitle = v.take(BOOK_MAX), understood = null, error = null) }
     fun setCustom(v: String) = _ui.update { it.copy(customPrompt = v.take(CUSTOM_MAX), error = null) }
 
-    private fun request(s: CreateUi) = LessonRequest(s.grade, s.subject, s.standardInput.trim(), s.customPrompt.trim())
+    private fun request(s: CreateUi) = LessonRequest(s.grade, s.subject, s.standardInput.trim(), s.customPrompt.trim(), s.bookTitle.trim())
 
     /** Three ideas. `again` keeps the history so the new round differs from every earlier one; a fresh start clears it. */
     fun getIdeas(again: Boolean, onReady: () -> Unit = {}) {
@@ -72,7 +76,8 @@ class CreateViewModel(private val container: AppContainer) : ViewModel() {
             }
             result.onSuccess { (res, ideas) ->
                 seen = (seen + ideas.map { SeenIdea(it.title, it.hook, it.summary, it.lens) }).takeLast(30)
-                val note = res.standard?.let { "${if (res.exact) "Standard" else "Closest standard"}: ${it.georgiaCode} (${it.shortCode})" }
+                val std = res.standard?.let { "${if (res.exact) "Standard" else "Closest standard"}: ${it.georgiaCode} (${it.shortCode})" }
+                val note = listOfNotNull(res.book?.let { "Book: ${it.describe()}${if (it.known) "" else " (not in the built-in list: add your own chapters)"}" }, std).joinToString("\n").ifEmpty { null }
                 _ui.update { it.copy(ideas = ideas, rounds = if (again) it.rounds + 1 else 1, understood = note, busy = false) }
                 onReady()
             }.onFailure { e -> _ui.update { it.copy(busy = false, error = e.message ?: "Something went wrong.") } }

@@ -22,6 +22,7 @@ object LessonCodec {
             },
             "differentiation" to mapOf("iep504" to l.differentiation.iep504, "onLevel" to l.differentiation.onLevel, "enrichment" to l.differentiation.enrichment),
             "tags" to l.tags,
+            "bookTitle" to l.book?.title, "bookAuthor" to l.book?.author,
         ),
     )
 
@@ -61,6 +62,7 @@ object LessonCodec {
             } ?: emptyList(),
             differentiation = Differentiation(s(diff, "iep504"), s(diff, "onLevel"), s(diff, "enrichment")),
             tags = (m["tags"] as? List<Any?>)?.map { it.toString() } ?: emptyList(),
+            book = (m["bookTitle"] as? String)?.let { t -> BookRef(t, m["bookAuthor"] as? String, BookCatalog.byTitle(t)) },
         )
     }
 

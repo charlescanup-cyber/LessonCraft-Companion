@@ -25,6 +25,19 @@ object StandardsCatalog {
         ela("RL.4.3", Grade.G4, "Reading Literature", "Describe in depth a character, setting, or event in a story or drama, drawing on specific details in the text.", "story details", "character", "setting", "event", "details"),
         ela("RI.4.2", Grade.G4, "Reading Informational Text", "Determine the main idea of a text and explain how it is supported by key details; summarize the text.", "main idea", "main idea", "summary", "summarize", "key details", "nonfiction"),
         ela("RL.5.2", Grade.G5, "Reading Literature", "Determine a theme of a story, drama, or poem from details in the text, including how characters in a story or drama respond to challenges or how the speaker in a poem reflects upon a topic; summarize the text.", "theme", "theme", "summary", "summarize", "poem", "challenges"),
+        ela("RL.6.2", Grade.G6, "Reading Literature", "Determine a theme or central idea of a text and how it is conveyed through particular details; provide a summary of the text distinct from personal opinions or judgments.", "theme", "central idea", "summary", "novel"),
+        ela("RL.7.1", Grade.G7, "Reading Literature", "Cite several pieces of textual evidence to support analysis of what the text says explicitly as well as inferences drawn from the text.", "textual evidence", "cite", "evidence", "inference", "novel"),
+        ela("RL.7.2", Grade.G7, "Reading Literature", "Determine a theme or central idea of a text and analyze its development over the course of the text; provide an objective summary of the text.", "theme", "central idea", "development", "summary", "novel"),
+        ela("RL.7.3", Grade.G7, "Reading Literature", "Analyze how particular elements of a story or drama interact (e.g., how setting shapes the characters or plot).", "characters", "setting", "plot", "story elements", "novel"),
+        ela("RL.8.1", Grade.G8, "Reading Literature", "Cite the textual evidence that most strongly supports an analysis of what the text says explicitly as well as inferences drawn from the text.", "textual evidence", "cite", "evidence", "inference", "novel"),
+        ela("RL.8.2", Grade.G8, "Reading Literature", "Determine a theme or central idea of a text and analyze its development over the course of the text, including its relationship to the characters, setting, and plot; provide an objective summary of the text.", "theme", "central idea", "development", "summary", "novel"),
+        ela("RL.8.3", Grade.G8, "Reading Literature", "Analyze how particular lines of dialogue or incidents in a story or drama propel the action, reveal aspects of a character, or provoke a decision.", "characters", "dialogue", "incidents", "plot", "novel"),
+        ela("RL.9-10.1", Grade.G9, "Reading Literature", "Cite strong and thorough textual evidence to support analysis of what the text says explicitly as well as inferences drawn from the text.", "textual evidence", "cite", "evidence", "inference", "novel"),
+        ela("RL.9-10.2", Grade.G9, "Reading Literature", "Determine a theme or central idea of a text and analyze in detail its development over the course of the text, including how it emerges and is shaped and refined by specific details; provide an objective summary of the text.", "theme", "central idea", "development", "summary", "novel"),
+        ela("RL.9-10.3", Grade.G9, "Reading Literature", "Analyze how complex characters develop over the course of a text, interact with other characters, and advance the plot or develop the theme.", "characters", "character development", "plot", "novel"),
+        ela("RL.9-10.1", Grade.G10, "Reading Literature", "Cite strong and thorough textual evidence to support analysis of what the text says explicitly as well as inferences drawn from the text.", "textual evidence", "cite", "evidence", "inference", "novel"),
+        ela("RL.9-10.2", Grade.G10, "Reading Literature", "Determine a theme or central idea of a text and analyze in detail its development over the course of the text, including how it emerges and is shaped and refined by specific details; provide an objective summary of the text.", "theme", "central idea", "development", "summary", "novel"),
+        ela("RL.9-10.3", Grade.G10, "Reading Literature", "Analyze how complex characters develop over the course of a text, interact with other characters, and advance the plot or develop the theme.", "characters", "character development", "plot", "novel"),
         math("K.CC.B.4", Grade.K, "Counting and Cardinality", "Understand the relationship between numbers and quantities; connect counting to cardinality.", "counting", "counting", "count", "numbers", "quantity", "cardinality"),
         math("K.CC.C.6", Grade.K, "Counting and Cardinality", "Identify whether the number of objects in one group is greater than, less than, or equal to the number of objects in another group.", "comparing groups", "compare", "greater", "less", "equal", "more", "fewer", "groups"),
         math("K.OA.A.1", Grade.K, "Operations and Algebraic Thinking", "Represent addition and subtraction with objects, fingers, mental images, drawings, sounds, acting out situations, verbal explanations, expressions, or equations.", "addition and subtraction", "addition", "subtraction", "add", "subtract", "represent"),
@@ -48,21 +61,39 @@ data class Resolution(
     val exact: Boolean,
     /** The teaching focus in plain words: the topic the teacher typed, the standard's own wording, or the start of the custom prompt. */
     val topic: String,
+    /** The book the request is about, when there is one: its title is then the lesson's subject matter. */
+    val book: BookRef? = null,
 )
 
 object StandardResolver {
     private fun normalizeCode(s: String): String =
         s.uppercase().replace("CCSS.", "").replace("ELA-LITERACY.", "").replace("MATH.CONTENT.", "").replace(Regex("[\\s_]"), "")
 
+    /** For a book, the literature standard of this grade that the teacher's words point to; failing that, theme (".2"), which every grade's book study covers. */
+    private fun forBook(pool: List<Standard>, hint: String): Standard? {
+        val lit = pool.filter { it.strand == "Reading Literature" }
+        if (lit.isEmpty()) return null
+        val probe = Text.tokens(hint)
+        val scored = lit.map { s -> s to s.keywords.count { k -> Text.tokens(k).let { t -> t.isNotEmpty() && t.all { it in probe } } } }.filter { it.second > 0 }.maxByOrNull { it.second }?.first
+        return scored ?: lit.firstOrNull { it.shortCode.endsWith(".2") } ?: lit.first()
+    }
+
     fun resolve(request: LessonRequest): Resolution {
         val input = request.standardInput.trim()
         val pool = StandardsCatalog.forGradeAndSubject(request.grade, request.subject)
+        val book = BookResolver.resolve(request)
 
         if (input.isNotEmpty()) {
             val code = normalizeCode(input)
             // A code, in CCSS or Georgia form, for any grade: honor it even if it is not this request's grade.
             val direct = StandardsCatalog.all.firstOrNull { normalizeCode(it.ccss) == code || it.shortCode.uppercase() == code || it.georgiaCode.uppercase() == code }
-            if (direct != null) return Resolution(direct, true, Text.decap(direct.description.removeSuffix(".")))
+            if (direct != null) return Resolution(direct, true, book?.title ?: Text.decap(direct.description.removeSuffix(".")), book)
+        }
+
+        // A book is the subject matter. Its standard is the literature standard the teacher's words point to (cite evidence, theme, characters).
+        if (book != null) {
+            val std = if (request.subject == Subject.ELA) forBook(pool, "${request.customPrompt} ${request.standardInput}") else null
+            return Resolution(std, false, book.title, book)
         }
 
         // Keywords in the topic (or, failing that, in the custom prompt) pick the closest standard for this grade and subject.
@@ -79,6 +110,6 @@ object StandardResolver {
             scored != null -> Text.decap(scored.description.removeSuffix("."))
             else -> Text.clip(request.customPrompt.trim().replace(Regex("\\s+"), " "), 80)
         }
-        return Resolution(scored, false, topic)
+        return Resolution(scored, false, topic, null)
     }
 }
