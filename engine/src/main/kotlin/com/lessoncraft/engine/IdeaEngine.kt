@@ -43,19 +43,70 @@ object IdeaEngine {
     )
 
     /** Ways of working with a book's own text. A book lesson draws its approach from these, so every idea is about reading and citing the book. */
-    internal class TextWork(val name: String, val product: String, val doing: (BookRef) -> String)
+    internal class TextWork(val name: String, val product: String, val doing: (BookRef, GradeBand) -> String)
 
     private fun chars(b: BookRef, n: Int = 2): String = b.characters.take(n).let { if (it.isEmpty()) "a main character" else it.joinToString(" and ") }
     private fun theme(b: BookRef, i: Int = 0): String = b.themes.getOrNull(i) ?: "a theme the class chooses"
 
+    /** The same kind of text work, pitched at the grade band: listening and telling for the youngest, evidence for the middle, analysis and judgment for the oldest. */
     internal val TEXT_WORKS = listOf(
-        TextWork("close reading of a key passage", "an annotated passage") { "reread a key passage from ${it.title}, mark the strongest words, and explain what they show" },
-        TextWork("character study", "a character map with a quote for each choice") { "follow ${chars(it)} through ${it.title} and track how their choices and feelings change" },
-        TextWork("theme tracing", "a theme tracker with three pieces of evidence") { "trace ${theme(it)} through ${it.title} and collect quotes from three places in the book" },
-        TextWork("evidence-based debate", "a one-minute argument with two quotes") { "take a side on a question from ${it.title} and defend it with quotes from the text" },
-        TextWork("setting and conflict study", "a setting-and-conflict chart") { "study ${it.info?.setting ?: "the setting"} in ${it.title} and how it shapes what happens" },
-        TextWork("writing from the text", "a paragraph with embedded quotes") { "write a response about ${theme(it, 1)} that quotes ${it.title} to support each idea" },
-        TextWork("then and now comparison", "a compare table with evidence") { "compare how ${chars(it, 1)} acts early and late in ${it.title}, using evidence from each part" },
+        TextWork("close reading of a key passage", "an annotated passage") { b, band ->
+            when (band) {
+                GradeBand.K2 -> "listen as a short passage from ${b.title} is read aloud, then tell which words helped them see it"
+                GradeBand.G35 -> "reread a short passage from ${b.title}, underline the strongest words, and say what the words show"
+                GradeBand.G68 -> "reread a key passage from ${b.title}, mark the strongest words, and explain what they show"
+                GradeBand.G912 -> "analyze a key passage from ${b.title}, explain how the author's word choices create meaning, and judge their effect"
+            }
+        },
+        TextWork("character study", "a character map with a quote for each choice") { b, band ->
+            when (band) {
+                GradeBand.K2 -> "listen for what ${chars(b, 1)} does in ${b.title} and tell how ${chars(b, 1)} feels"
+                GradeBand.G35 -> "follow ${chars(b)} through ${b.title} and tell how their actions show what they are like"
+                GradeBand.G68 -> "follow ${chars(b)} through ${b.title} and track how their choices and feelings change"
+                GradeBand.G912 -> "analyze how ${chars(b)} ${if (b.characters.size >= 2) "develop" else "develops"} through ${b.title} and what ${if (b.characters.size >= 2) "their" else "the character's"} choices reveal about the author's purpose"
+            }
+        },
+        TextWork("theme tracing", "a theme tracker with three pieces of evidence") { b, band ->
+            when (band) {
+                GradeBand.K2 -> "talk about what ${b.title} teaches and find one part of the book that shows it"
+                GradeBand.G35 -> "decide what lesson ${b.title} teaches about ${theme(b)} and find two parts of the text that show it"
+                GradeBand.G68 -> "trace ${theme(b)} through ${b.title} and collect quotes from three places in the book"
+                GradeBand.G912 -> "trace how ${theme(b)} develops in ${b.title}, evaluate how convincingly the author builds it, and support the judgment with quotes"
+            }
+        },
+        TextWork("evidence-based debate", "a one-minute argument with two quotes") { b, band ->
+            when (band) {
+                GradeBand.K2 -> "pick a favorite part of ${b.title}, tell why, and listen to a partner's reason"
+                GradeBand.G35 -> "choose a side on a question about ${b.title} and give two reasons from the text"
+                GradeBand.G68 -> "take a side on a question from ${b.title} and defend it with quotes from the text"
+                GradeBand.G912 -> "take a position on a debatable claim about ${b.title}, defend it with textual evidence, and answer a counterargument"
+            }
+        },
+        TextWork("setting and conflict study", "a setting-and-conflict chart") { b, band ->
+            val s = b.info?.setting?.takeIf { b.known } ?: "the setting"
+            when (band) {
+                GradeBand.K2 -> "listen for where ${b.title} happens and tell what the place is like"
+                GradeBand.G35 -> "describe $s in ${b.title} and find a problem the place causes"
+                GradeBand.G68 -> "study $s in ${b.title} and how it shapes what happens"
+                GradeBand.G912 -> "analyze how $s in ${b.title} shapes its conflicts and what the setting says about the author's purpose"
+            }
+        },
+        TextWork("writing from the text", "a paragraph with embedded quotes") { b, band ->
+            when (band) {
+                GradeBand.K2 -> "tell and write one sentence about ${b.title} using a sentence frame"
+                GradeBand.G35 -> "write a paragraph about ${b.title} with a sentence frame and one quote"
+                GradeBand.G68 -> "write a response about ${theme(b, 1)} that quotes ${b.title} to support each idea"
+                GradeBand.G912 -> "write an argument about ${theme(b, 1)} in ${b.title} that integrates and analyzes quotations"
+            }
+        },
+        TextWork("then and now comparison", "a compare table with evidence") { b, band ->
+            when (band) {
+                GradeBand.K2 -> "tell how ${chars(b, 1)} is at the start and at the end of ${b.title}"
+                GradeBand.G35 -> "compare how ${chars(b, 1)} acts at the beginning and the end of ${b.title}"
+                GradeBand.G68 -> "compare how ${chars(b, 1)} acts early and late in ${b.title}, using evidence from each part"
+                GradeBand.G912 -> "evaluate how and why ${chars(b, 1)} changes across ${b.title}, using evidence from the beginning, middle and end"
+            }
+        },
     )
 
     private fun bookDrafts(request: LessonRequest, resolution: Resolution, book: BookRef, needs: CustomNeeds, seen: List<SeenIdea>, used: List<Lens>, key: String, count: Int): List<Idea> {
@@ -63,18 +114,18 @@ object IdeaEngine {
         val recent = used.takeLast(count)
         val works = fresh(TEXT_WORKS.map { it.name }, used.map { it.angle }, count, recent.map { it.angle }).shuffled(rng).take(count).map { n -> TEXT_WORKS.first { it.name == n } }
         val titleStyles = BOOK_TITLES.indices.shuffled(rng).take(count)
-        val questions = book.info?.questions ?: emptyList()
         return works.mapIndexed { i, w ->
-            val q = if (questions.isNotEmpty()) questions[(seen.size + i) % questions.size] else null
+            val scaling = BookScaling.note(book, request.grade)
             val standardNote = resolution.standard?.let { " It addresses ${it.georgiaCode} (${it.ccss})." } ?: ""
             val coreText = "Core text: ${book.describe()}${book.info?.let { " (${it.genre})" } ?: ""}."
-            val knowNote = if (book.known) "" else " Chapters and passages come from your own copy: add the ones you want students to cite."
+            val knowNote = (if (book.known) "" else if (book.info != null) " The built-in list recognizes this title but has no verified details for it, so add the author, characters and passages from your own copy." else " Chapters and passages come from your own copy: add the ones you want students to cite.") +
+                (scaling?.let { " $it" } ?: "")
             val supportNote = needs.supports.firstOrNull()?.let { " Built for your students: ${Text.decap(it)}" } ?: ""
             val themeNote = needs.themes.firstOrNull()?.let { " Your theme, $it, frames the activities." } ?: ""
             val build = resolution.standard?.let { " They build toward: ${Text.decap(it.description.removeSuffix("."))}." } ?: ""
             val title = Text.clip(BOOK_TITLES[titleStyles[i]](book.title, Text.cap(w.name)), 80)
-            val hook = if (q != null) "Open with a question from the book and let students answer from memory first: $q" else "Read the opening page of ${book.title} aloud and ask students to predict what kind of story it will be."
-            val summary = "Students ${w.doing(book)}, and finish with ${w.product}.$build$standardNote $coreText$themeNote$supportNote$knowNote"
+            val hook = BookScaling.hookQuestion(book, request.grade, seen.size + i)
+            val summary = "Students ${w.doing(book, request.grade.band)}, and finish with ${w.product}.$build$standardNote $coreText$themeNote$supportNote$knowNote"
             Idea(title, summary.replace("  ", " ").trim(), hook, Lens(w.name, "a question from the book", book.title, book.describe()))
         }
     }

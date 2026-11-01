@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -20,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -77,12 +79,20 @@ fun CreateScreen(vm: CreateViewModel, onIdeas: () -> Unit) {
                 onValueChange = vm::setBook,
                 label = { Text("Book title (optional)") },
                 placeholder = { Text("The Outsiders") },
-                supportingText = { Text("Ideas, standards and handout items are then built on this book.") },
+                supportingText = { Text("Any book works with any grade: the plan is scaled to the grade you pick. Type any title; catalog matches appear below.") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            // Catalog matches as you type. Any other title is accepted as typed: the plan names it and asks for your own passages.
+            val matches = com.lessoncraft.engine.BookCatalog.suggest(ui.bookTitle)
+            if (matches.isNotEmpty() && matches.none { it.title.equals(ui.bookTitle.trim(), ignoreCase = true) }) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    matches.forEach { b -> SuggestionChip(onClick = { vm.setBook(b.title) }, label = { Text(b.title, maxLines = 1) }) }
+                }
+            }
 
             // Large, conversational: the lesson's vision and the students' needs.
             OutlinedTextField(

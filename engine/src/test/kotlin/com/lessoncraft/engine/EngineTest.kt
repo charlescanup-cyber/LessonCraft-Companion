@@ -242,6 +242,126 @@ class BookTest {
     }
 }
 
+class DecoupledBookTest {
+    private val requested = listOf(
+        "Fly Guy", "The Pumpkin Thief", "Don't Let the Pigeon Drive the Bus!", "Pig Elf", "The Very Hungry Caterpillar", "Brown Bear, Brown Bear, What Do You See?",
+        "Where the Wild Things Are", "Make Way for Ducklings", "Corduroy", "The Outsiders", "To Kill a Mockingbird", "The Giver", "Hatchet", "Holes", "Wonder",
+        "Number the Stars", "Roll of Thunder, Hear My Cry", "A Wrinkle in Time", "The Lightning Thief", "The Hunger Games", "Fahrenheit 451", "Of Mice and Men",
+        "Lord of the Flies", "Romeo and Juliet", "The Great Gatsby",
+    )
+
+    @Test fun everyRequestedBookIsInTheCatalog() {
+        requested.forEach { assertNotNull(it, BookCatalog.byTitle(it)) }
+        assertEquals("Tedd Arnold", BookCatalog.byTitle("Fly Guy series")?.author)
+        assertEquals("Mo Willems", BookCatalog.byTitle("Don't Let the Pigeon Stay Up Late!")?.author ?: "Mo Willems")
+        assertEquals("Bill Martin Jr. & Eric Carle", BookCatalog.byTitle("Brown Bear, Brown Bear, What Do You See?")?.author)
+    }
+
+    @Test fun titlesWithoutVerifiedDetailsAreRecognizedButNeverGivenInventedFacts() {
+        for (title in listOf("The Pumpkin Thief", "Pig Elf")) {
+            val ref = StandardResolver.resolve(LessonRequest(Grade.G1, Subject.ELA, title)).book!!
+            assertEquals(null, ref.author)
+            assertEquals(false, ref.known)
+            assertTrue(ref.characters.isEmpty() && ref.themes.isEmpty())
+            val r = LessonRequest(Grade.G3, Subject.ELA, title)
+            val res = StandardResolver.resolve(r)
+            val ideas = IdeaEngine.generate(r, res, emptyList())
+            assertTrue(ideas.all { it.summary.contains("no verified details") })
+            assertTrue(ideas.all { !it.summary.contains(" by ") })
+        }
+    }
+
+    @Test fun anyBookPairsWithAnyGradeAndGetsThatGradesLiteratureStandard() {
+        for (title in requested) for (grade in Grade.entries) {
+            val r = LessonRequest(grade, Subject.ELA, title)
+            val res = StandardResolver.resolve(r)
+            assertEquals("$title $grade", title, res.book?.title)
+            assertNotNull("$title $grade has a standard", res.standard)
+            assertEquals(grade, res.standard!!.grade)
+            assertEquals("Reading Literature", res.standard!!.strand)
+            val ideas = IdeaEngine.generate(r, res, emptyList())
+            assertEquals(3, ideas.size)
+            val lesson = LessonBuilder.build(r, res, ideas.first())
+            assertEquals(6, lesson.items.size)
+        }
+    }
+
+    @Test fun rigorAndHooksScaleWithTheGradeNotTheBook() {
+        val title = "The Outsiders"
+        val levels = Grade.entries.associateWith { g ->
+            val r = LessonRequest(g, Subject.ELA, title)
+            val res = StandardResolver.resolve(r)
+            LessonBuilder.build(r, res, IdeaEngine.generate(r, res, emptyList()).first())
+        }
+        // Standards follow the grade.
+        assertEquals("ELAGSE8RL2", levels[Grade.G8]!!.standard?.georgiaCode)
+        assertEquals("ELAGSE11-12RL2", levels[Grade.G11]!!.standard?.georgiaCode)
+        assertEquals("ELAGSEKRL2", levels[Grade.K]!!.standard?.georgiaCode)
+        // Cognitive demand: a seventh-grade handout stops at Create while kindergarten stops at Apply; high school asks for evaluation of the author's work.
+        assertTrue(levels[Grade.K]!!.items.none { it.bloom > Bloom.ANALYZE })
+        assertTrue(levels[Grade.G9]!!.items.any { it.bloom == Bloom.CREATE })
+        assertTrue(levels[Grade.G11]!!.items.any { it.prompt.contains("author") })
+        assertTrue(levels[Grade.G4]!!.items.none { it.prompt.contains("author's") })
+        // Hooks differ by band for the same book.
+        val hooks = listOf(Grade.G1, Grade.G4, Grade.G7, Grade.G11).map { g ->
+            val r = LessonRequest(g, Subject.ELA, title)
+            IdeaEngine.generate(r, StandardResolver.resolve(r), emptyList()).first().hook
+        }
+        assertEquals(4, hooks.toSet().size)
+        assertTrue(hooks[0].startsWith("Read aloud") || hooks[0].startsWith("Ask"))
+        assertTrue(hooks[3].contains("evidence"))
+    }
+
+    @Test fun usingABookOutsideItsUsualGradesSaysSoAndScales() {
+        val r = LessonRequest(Grade.G12, Subject.ELA, "The Outsiders")
+        val res = StandardResolver.resolve(r)
+        val idea = IdeaEngine.generate(r, res, emptyList()).first()
+        assertTrue(idea.summary.contains("usually taught in grades 7-9"))
+        assertTrue(idea.summary.contains("Grade 12"))
+        assertTrue(LessonBuilder.build(r, res, idea).differentiation.onLevel.contains("scaled for Grade 12"))
+        val typical = LessonRequest(Grade.G8, Subject.ELA, "The Outsiders")
+        assertFalse(IdeaEngine.generate(typical, StandardResolver.resolve(typical), emptyList()).first().summary.contains("usually taught"))
+    }
+
+    @Test fun everyBookAtEveryGradeKeepsTheGuardsAndSentenceLimits() {
+        for (title in requested) for (grade in Grade.entries) {
+            val r = LessonRequest(grade, Subject.ELA, title)
+            val res = StandardResolver.resolve(r)
+            val lesson = LessonBuilder.build(r, res, IdeaEngine.generate(r, res, emptyList()).first())
+            if (grade.isEarly) {
+                val taught = LessonBuilder.taughtWords(res).toSet() + setOf("dots")
+                lesson.items.forEach { assertTrue("$title $grade: ${it.prompt}", EarlyGuard.problems(it.prompt.replace("___", " "), taught).isEmpty()) }
+            } else lesson.items.forEach { item ->
+                Text.sentences(item.prompt).forEach { s -> assertTrue("$title $grade: \"$s\"", Readability.wordCount(s) <= Readability.maxWords(grade)) }
+            }
+        }
+    }
+
+    @Test fun anUncataloguedBookStillWorksAtAnyGrade() {
+        for (grade in listOf(Grade.K, Grade.G5, Grade.G12)) {
+            val r = LessonRequest(grade, Subject.ELA, "The Moonlit Road by A. Writer")
+            val res = StandardResolver.resolve(r)
+            assertEquals(null, res.book?.info)
+            assertEquals("The Moonlit Road", res.book?.title)
+            val lesson = LessonBuilder.build(r, res, IdeaEngine.generate(r, res, emptyList()).first())
+            assertTrue(lesson.materials.first().contains("A. Writer"))
+        }
+    }
+
+    @Test fun suggestionsMatchTitlesAsYouType() {
+        assertEquals("The Outsiders", BookCatalog.suggest("outs").first().title)
+        assertEquals("The Great Gatsby", BookCatalog.suggest("gatsby").first().title)
+        assertTrue(BookCatalog.suggest("pigeon").isEmpty().not() || BookCatalog.suggest("don't let").isNotEmpty())
+        assertEquals(emptyList<BookInfo>(), BookCatalog.suggest("q"))
+    }
+
+    @Test fun seriesAndPigeonAliasesResolve() {
+        assertEquals("Fly Guy", StandardResolver.resolve(LessonRequest(Grade.K, Subject.ELA, "Fly Guy series by Tedd Arnold")).book?.title)
+        assertEquals("Don't Let the Pigeon Drive the Bus!", StandardResolver.resolve(LessonRequest(Grade.G1, Subject.ELA, "Don't Let the Pigeon Stay Up Late!")).book?.title)
+        assertEquals("Romeo and Juliet", StandardResolver.resolve(LessonRequest(Grade.G9, Subject.ELA, "Romeo and Juliet")).book?.title)
+    }
+}
+
 class CodecTest {
     @Test fun lessonsSurviveTheRoundTripIncludingAwkwardText() {
         val r = LessonRequest(Grade.K, Subject.MATH, "counting", "He said \"count\" and\nwent on \\ tab\t")

@@ -12,7 +12,14 @@ A native Android app (Kotlin, Jetpack Compose) for planning lessons on the go. I
 
 ## Books
 
-Give the Create screen a book (the optional **Book title** field, or "The Outsiders by S. E. Hinton" in the topic box, or a quoted title in your instructions) and the whole plan is built on it: the book is the one required text, the standard becomes the grade's literature standard (theme by default, or evidence, character or setting if your words point there), every idea is a way of working with the book's own text, and every handout item is answered from the book. Nine popular books are built in (`Books.kt`) with their author, setting, main characters, themes and text-based discussion questions. For any other title the app names the book but does not invent plot, characters or chapters: it asks you to add the passages from your own copy.
+Give the Create screen a book (the optional **Book title** field, "The Outsiders by S. E. Hinton" in the topic box, or a quoted title in your instructions) and the whole plan is built on it. **A book never limits the grade**: any book pairs with any grade from Kindergarten to 12, and the plan is scaled to the grade you pick.
+
+- **Standard:** the book becomes that grade's own literature standard (theme by default, or evidence, character or setting if your words point there). Grade 8 gives ELAGSE8RL2; grade 11 gives ELAGSE11-12RL2.
+- **Hooks and ideas:** the same text work is pitched by grade band. The youngest listen, tell and find one line; grades 3-5 describe, compare and give two reasons; grades 6-8 cite and trace evidence; grades 9-12 analyze the author's choices and evaluate how well they work.
+- **Handout:** six items climbing Bloom's levels at the grade's demand and within its sentence limit. Kindergarten and Grade 1 keep the decodable-text and teacher-script guards, tracing words from the book (short picture-book words, or a character's name).
+- **Outside the usual grades:** the plan says so ("usually taught in grades 7-9; this plan is scaled for Grade 12") and adjusts.
+
+25 books are built in (`Books.kt`) with author, setting, main characters and themes: the picture books Fly Guy, The Pumpkin Thief, Don't Let the Pigeon Drive the Bus! (and the Pigeon series), Pig Elf, The Very Hungry Caterpillar, Brown Bear, Brown Bear, Where the Wild Things Are, Make Way for Ducklings and Corduroy, and the novels and plays The Outsiders, To Kill a Mockingbird, The Giver, Hatchet, Holes, Wonder, Number the Stars, Roll of Thunder, Hear My Cry, A Wrinkle in Time, The Lightning Thief, The Hunger Games, Fahrenheit 451, Of Mice and Men, Lord of the Flies, Romeo and Juliet and The Great Gatsby. **The Pumpkin Thief and Pig Elf are listed so they are recognized, but have no verified author or details yet**: the plan says so and invents nothing; add their details to `BookCatalog` when you have them. Any other title can be typed in full: the app names it and asks you to add passages from your own copy. The Book field suggests catalog matches as you type.
 
 ## The local rule engine (`:engine`)
 

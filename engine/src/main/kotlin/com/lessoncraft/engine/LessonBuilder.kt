@@ -38,7 +38,7 @@ object LessonBuilder {
             items = safeItems,
             differentiation = Differentiation(
                 iep504 = "Same standard, same expectation. Add the supports in each student's plan: read directions aloud, break the work into steps, allow extra time, and offer a word bank.${needs.supports.drop(1).firstOrNull()?.let { " $it" } ?: ""}",
-                onLevel = "Teach the sequence as written. Students complete the handout and discuss their answers with a partner.",
+                onLevel = "Teach the sequence as written. Students complete the handout and discuss their answers with a partner." + (resolution.book?.let { b -> BookScaling.note(b, grade)?.let { " $it" } } ?: ""),
                 enrichment = "Extend one Bloom's level higher: students ${extension(grade)} about $focus.",
             ),
             tags = tags(request, resolution, needs, idea),
@@ -152,7 +152,12 @@ object LessonBuilder {
     )
 
     internal fun taughtWords(resolution: Resolution): List<String> {
-        resolution.book?.info?.earlyWords?.takeIf { it.isNotEmpty() }?.let { w -> return (w + FALLBACK_WORDS).distinct().take(2) }
+        resolution.book?.let { book ->
+            book.info?.earlyWords?.takeIf { it.isNotEmpty() }?.let { w -> return (w + FALLBACK_WORDS).distinct().take(2) }
+            // A chapter book read to the youngest: trace and write two short character names from the book.
+            val names = book.characters.mapNotNull { Text.words(it).firstOrNull { w -> w.matches(Regex("[a-z]{3,7}")) && w !in setOf("the", "mrs", "mr") } }.distinct().sortedBy { it.length }
+            if (names.size >= 2) return names.take(2)
+        }
         resolution.standard?.let { s -> EARLY_WORDS[s.shortCode]?.let { return it } }
         val candidates = (Text.words(resolution.topic) + (resolution.standard?.keywords?.flatMap { Text.words(it) } ?: emptyList()))
             .filter { it.matches(Regex("[a-z]{3,7}")) && it !in STOP_FOCUS }
@@ -211,33 +216,58 @@ object LessonBuilder {
 
     /* ---------- A book-based handout: every item is answered from the text ---------- */
 
-    /** Student text for grades with short sentence limits says "the book"; older grades name it. */
+    /**
+     * A book-based handout pitched at the target grade, whatever the book's usual grade. Younger grades get concrete, short tasks (who, what, where,
+     * quote one line); middle grades compare, cite and decide; the oldest analyze the author's choices and evaluate how well they work. Sentences stay
+     * within the grade's limit, and "the book" stands in for a long title where the limit is tight.
+     */
     private fun bookItems(grade: Grade, book: BookRef): List<StudentItem> {
-        val ladder = BloomPlan.ladder(grade.band, 6)
-        val ref = if (grade.ordinal <= Grade.G3.ordinal) "the book" else book.title
-        val people = book.characters
+        val band = grade.band
+        val ladder = BloomPlan.ladder(band, 6)
+        val ref = if (grade.ordinal <= Grade.G3.ordinal || Text.words(book.title).size > 4 && band == GradeBand.G35) "the book" else book.title
+        // Names short enough to fit a student sentence; a group description ("the animals in the book") is not a name to compare or write a scene about.
+        val people = book.characters.filter { Text.words(it).size <= 3 && !it.startsWith("the animals") }
         val a = people.getOrNull(0) ?: "a main character"
-        // The second character is a contrast to the first (the last one named), so comparisons and new scenes have something to work with.
+        // The second character is a contrast to the first (the fifth named, else the last), so comparisons and new scenes have something to work with.
         val b = people.takeIf { it.size > 1 }?.let { it[if (it.size > 4) 4 else it.size - 1] } ?: "another character"
         val th = book.themes.getOrNull(0) ?: "a theme"
-        val q = book.info?.questions?.getOrNull(0)
-        val short = grade.ordinal <= Grade.G3.ordinal
-        fun make(level: Bloom): Pair<String, String> = when (level) {
-            Bloom.REMEMBER -> (if (short) "Name two people in $ref." else "Name three characters in $ref. Write one fact about each.") to
-                "Accurate names from the text${if (people.isNotEmpty()) " (for example ${people.take(3).joinToString(", ")})" else ""}, each with a fact the book supports."
-            Bloom.UNDERSTAND -> (if (short) "Tell what $ref is about. Use two sentences." else "Explain the theme of $th in $ref. Finish: In $ref, ___ shows $th because ___.") to
-                "An explanation in the student's own words that names $th and points to something that happens in the book."
-            Bloom.APPLY -> (if (short) "Find a line in $ref. Copy it. Say where." else "Find a quote from $ref that shows $th. Copy it exactly. Say where it is.") to
-                "A quote copied exactly from the student's copy, with its location, that really does show $th."
-            Bloom.ANALYZE -> (if (short) "Compare two people in $ref. Make a table." else "Compare $a and $b in a table: alike and different. Give one quote for each.") to
-                "At least two accurate likenesses and two differences between $a and $b (or the two characters chosen), each backed by a quote."
-            Bloom.EVALUATE -> (if (q != null && !short) "$q Give two reasons. Use evidence from the text." else "Which choice in $ref matters most? Give two reasons.") to
-                "A clear position supported by two reasons that cite the text. Answers vary; score the evidence, not the opinion."
-            Bloom.CREATE -> (if (short) "Write a new scene for $ref. Keep the voices true." else "Write a new scene for $ref where $a meets $b. Keep their voices true to the book.") to
-                "An original scene that keeps the characters' voices and the book's setting consistent with the text."
+        val q = book.info?.questions?.takeIf { BookScaling.hasOlderQuestions(book) }?.getOrNull(0)
+        val eg = if (people.isNotEmpty()) " (for example ${people.take(3).joinToString(", ")})" else ""
+
+        fun make(level: Bloom, again: Int): Pair<String, String> = when (band) {
+            GradeBand.K2 -> when (level) {
+                Bloom.REMEMBER -> if (again == 0) "Name two people in $ref." to "Accurate names from the text$eg." else "Say who the book is about. Write one name." to "A correct name from the text$eg."
+                Bloom.UNDERSTAND -> if (again == 0) "Tell what $ref is about. Use two sentences." to "Two sentences that say what happens, in the student's words." else "Tell how it begins and ends." to "A beginning and an end that match the text."
+                Bloom.APPLY -> if (again == 0) "Find a line in $ref. Copy it. Say where." to "A line copied exactly from the student's copy, with its place." else "Find a word in $ref you like. Copy it. Tell why." to "A word copied exactly, with a reason that is the student's own."
+                else -> if (again == 0) "Compare two people in $ref. Make a table." to "At least one likeness and one difference, each from the text." else "Tell what is the same. Tell what differs." to "One likeness and one difference, each from the text."
+            }
+            GradeBand.G35 -> when (level) {
+                Bloom.REMEMBER -> "Name three characters in $ref. Write one fact about each." to "Accurate names from the text$eg, each with a fact the book supports."
+                Bloom.UNDERSTAND -> "Explain the theme of $th in $ref. Use a sentence frame." to "An explanation in the student's words that names $th and points to something in the book."
+                Bloom.APPLY -> "Find a quote about $th in $ref. Copy it. Say where it is." to "A quote copied exactly, with its place, that shows $th."
+                Bloom.ANALYZE -> "Compare $a and $b. Use a table. Add one quote each." to "Two or more likenesses and differences between $a and $b, each backed by a quote."
+                Bloom.EVALUATE -> "Which choice in $ref matters most? Give two reasons." to "A clear choice with two reasons from the text. Score the evidence, not the opinion."
+                Bloom.CREATE -> "Write a new scene where $a meets $b. Keep their voices true." to "An original scene that keeps the characters' voices consistent with the book."
+            }
+            GradeBand.G68 -> when (level) {
+                Bloom.REMEMBER -> "Name three characters in $ref. Write one fact about each." to "Accurate names from the text$eg, each with a fact the book supports."
+                Bloom.UNDERSTAND -> "Explain the theme of $th in $ref. Finish: In $ref, ___ shows $th because ___." to "An explanation in the student's words that names $th and points to something that happens in the book."
+                Bloom.APPLY -> "Find a quote from $ref that shows $th. Copy it exactly. Say where it is." to "A quote copied exactly from the student's copy, with its location, that shows $th."
+                Bloom.ANALYZE -> "Compare $a and $b in a table: alike and different. Give one quote for each." to "At least two accurate likenesses and two differences between $a and $b, each backed by a quote."
+                Bloom.EVALUATE -> (if (q != null) "$q Give two reasons. Use evidence from the text." else "Which choice in $ref matters most to the story? Give two reasons.") to "A clear position supported by two reasons that cite the text. Score the evidence, not the opinion."
+                Bloom.CREATE -> "Write a new scene for $ref where $a meets $b. Keep their voices true to the book." to "An original scene that keeps the characters' voices and the setting consistent with the text."
+            }
+            GradeBand.G912 -> when (level) {
+                Bloom.REMEMBER -> "Name the key characters in $ref. Write one fact about each." to "Accurate names from the text$eg, each with a fact the book supports."
+                Bloom.UNDERSTAND -> "Explain how $th develops in $ref. Finish: ___ shows $th because ___." to "An explanation that traces $th through specific moments in the text."
+                Bloom.APPLY -> "Find two quotes from $ref that show $th. Say where each appears." to "Two exact quotes, with locations, that really show $th."
+                Bloom.ANALYZE -> "Analyze how the author uses $a and $b to develop $th. Cite two quotes." to "An analysis of how each character's role builds $th, supported by two quotes."
+                Bloom.EVALUATE -> (if (q != null) "$q Evaluate the evidence for each side. Use at least two places in the text." else "Evaluate how effectively $ref develops $th. Use evidence from at least two places.") to "A reasoned judgment weighing evidence from at least two places in the text. Score the reasoning and the evidence."
+                Bloom.CREATE -> "Write a new scene for $ref where $a meets $b. Match the author's voice and style." to "An original scene that matches the author's voice, style and setting, with choices that fit the characters."
+            }
         }
         return ladder.mapIndexed { i, level ->
-            val (p, ans) = make(level)
+            val (p, ans) = make(level, ladder.take(i).count { it == level })
             StudentItem(i + 1, when (level) { Bloom.ANALYZE -> ItemKind.DATA_TABLE; Bloom.UNDERSTAND -> ItemKind.SENTENCE_FRAME; else -> ItemKind.QUESTION }, p, level, ans)
         }
     }
