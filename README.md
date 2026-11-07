@@ -58,3 +58,8 @@ New installs are on the free plan. `EntitlementStore.redeem(code)` is the extens
 engine/   Kotlin/JVM rule engine and its tests
 app/      Android app: data (Room), ui (Compose screens), share (print/export)
 ```
+
+## Standard / Curriculum Code and non-ELA lessons
+
+- The create screen has a separate **Standard / Curriculum Code (optional)** field (e.g. NGSS `HS-LS1-4`, CCSS `4.NF.A.2`, `ELAGSE4RL2`). It travels in `LessonRequest.standardCode`. Catalogued codes (CCSS, Georgia, 11 NGSS standards) resolve to their wording; any other code is used exactly as typed, with no invented wording.
+- Science, math and social studies lessons no longer use ELA sentence frames. Concept packs (`Domains.kt`: mitosis, photosynthesis, cellular respiration, the water cycle, moon phases, comparing fractions, multiplication) supply ordered phases, key terms and a common misconception, which feed Direct Instruction, Guided Practice, the exit ticket and the handout. Other topics get a generic observe / model / evidence / explain structure.

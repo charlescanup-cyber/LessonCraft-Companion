@@ -14,8 +14,9 @@ object LessonBuilder {
         val focus = focusPhrase(resolution)
         val level = BloomPlan.levelOf(standard?.description ?: "")
         val objective = objective(resolution, focus) + (resolution.book?.let { " Evidence comes from ${it.describe()}." } ?: "")
-        val sequence = sequence(grade, idea, resolution, focus, needs, level)
-        val items = if (grade.isEarly) earlyItems(request, focus, resolution, needs) else if (resolution.book != null) bookItems(grade, resolution.book) else laterItems(request, idea, focus, needs)
+        val domain = domainView(request, resolution, grade, focus)
+        val sequence = sequence(grade, idea, resolution, focus, needs, level, domain)
+        val items = if (grade.isEarly) earlyItems(request, focus, resolution, needs) else if (resolution.book != null) bookItems(grade, resolution.book) else if (domain != null) domainItems(grade, domain) else laterItems(request, idea, focus, needs)
         // Final line of defense: Kindergarten and Grade 1 student text must pass the guard, or it becomes a safe teacher-led task.
         val taught = (if (grade.isEarly) taughtWords(resolution) else emptyList()).toSet() + setOf("dots")
         val safeItems = if (grade.isEarly) items.map { enforceEarly(it, taught) } else items
@@ -28,7 +29,7 @@ object LessonBuilder {
             customNotes = needs.notes,
             objective = objective,
             objectiveBloom = if (standard != null) level else Bloom.UNDERSTAND,
-            materials = materials(request, needs, idea, resolution.book),
+            materials = materials(request, needs, idea, resolution.book, domain),
             udlPlan = Udl(
                 "Offer a choice in how students show learning and connect ${focus} to their own lives.${needs.supports.firstOrNull()?.let { " $it" } ?: ""}",
                 "Present ${focus} three ways: spoken, written and hands-on. Pre-teach key words and point out patterns.",
@@ -56,7 +57,8 @@ object LessonBuilder {
     /** A few plain words naming what the lesson is about, safe to drop into a sentence. */
     fun focusPhrase(resolution: Resolution): String {
         resolution.book?.let { return it.title }
-        resolution.standard?.let { return it.focus }
+        resolution.pack?.let { return it.title }
+        resolution.standard?.let { if (it.catalogued || resolution.topic.isBlank()) return it.focus }
         val words = Text.words(resolution.topic).filter { it.length > 2 && it !in STOP_FOCUS }.take(3)
         return words.joinToString(" ").ifBlank { "this topic" }
     }
@@ -64,6 +66,7 @@ object LessonBuilder {
     private fun objective(resolution: Resolution, focus: String): String {
         val s = resolution.standard
         val lead = "With prompting and support, "
+        if (s != null && !s.catalogued) return "Students will be able to meet ${s.ccss} by explaining and applying $focus."
         return if (s != null && s.description.startsWith(lead)) "Students will, with prompting and support, ${Text.decap(s.description.removeSuffix(".").removePrefix(lead))}."
         else if (s != null) "Students will be able to ${Text.decap(s.description.removeSuffix("."))}."
         else "Students will be able to explain and apply the key ideas about $focus."
@@ -77,7 +80,7 @@ object LessonBuilder {
         else -> Bloom.CREATE
     }
 
-    private fun sequence(grade: Grade, idea: Idea, resolution: Resolution, focus: String, needs: CustomNeeds, standardLevel: Bloom): List<Step> {
+    private fun sequence(grade: Grade, idea: Idea, resolution: Resolution, focus: String, needs: CustomNeeds, standardLevel: Bloom, domain: DomainView?): List<Step> {
         val cap = bloomCap(grade)
         val exit = listOf(maxOf(standardLevel, Bloom.APPLY, if (grade.band != GradeBand.K2) Bloom.ANALYZE else Bloom.APPLY), cap).minBy { it.ordinal }
         val support = needs.supports.firstOrNull()
@@ -90,33 +93,33 @@ object LessonBuilder {
             ),
             Step(
                 "Direct Instruction", 10, "Teach $focus",
-                "Model $focus ${if (resolution.book != null) "with a short passage read aloud and a thinking-aloud talk about what the words show" else "with a worked example, thinking aloud"}. Name the key words. Pause twice to check understanding, then have students explain the idea to a partner.${resolution.standard?.let { " Keep the standard in view: ${Text.clip(it.description, 110)}" } ?: ""}",
+                if (domain != null) domain.directInstruction(resolution.standard) else "Model $focus ${if (resolution.book != null) "with a short passage read aloud and a thinking-aloud talk about what the words show" else "with a worked example, thinking aloud"}. Name the key words. Pause twice to check understanding, then have students explain the idea to a partner.${resolution.standard?.let { " Keep the standard in view: ${Text.clip(it.description, 110)}" } ?: ""}",
                 Bloom.UNDERSTAND,
                 udl("Connect the example to something students care about.", "Show the example spoken, written and with objects.", "Students show understanding by telling a partner, not only by writing."),
             ),
             Step(
                 "Guided Practice", 15, "Practice with support",
-                "Students ${idea.lens.angle.let { Text.decap(it) }} together on the handout while you circulate. Start with items 1 to 3 as a group, then release students to try the rest. ${support ?: "Offer hints before answers."}",
+                if (domain != null) domain.guidedPractice(support) else "Students ${idea.lens.angle.let { Text.decap(it) }} together on the handout while you circulate. Start with items 1 to 3 as a group, then release students to try the rest. ${support ?: "Offer hints before answers."}",
                 Bloom.APPLY,
                 udl("Students pick a partner or work alone.", "Post the steps and an example where all can see.", "Students may write, draw or explain aloud."),
             ),
             Step(
                 "Exit Ticket", 5, "Show what you know",
-                "Each student answers one question on $focus before leaving, at the highest level the class reached today. Collect the tickets and sort them into got it, almost and not yet.",
+                if (domain != null) domain.exitTicket() else "Each student answers one question on $focus before leaving, at the highest level the class reached today. Collect the tickets and sort them into got it, almost and not yet.",
                 exit,
                 udl("Students pick the question they will answer.", "Read the question aloud.", "Students answer in words, a drawing or a number."),
             ),
         )
     }
 
-    private fun materials(request: LessonRequest, needs: CustomNeeds, idea: Idea, book: BookRef?): List<String> {
+    private fun materials(request: LessonRequest, needs: CustomNeeds, idea: Idea, book: BookRef?, domain: DomainView?): List<String> {
         val m = mutableListOf<String>()
         // One required text: the book itself. Nothing else is offered as a second required text.
         if (book != null) m += "Class copies of ${book.describe()} (the one required text)"
         m += listOf("Student handout (printed or on a device)", "Pencils and paper for drawing and notes", "Chart paper or a board for the shared example")
         when (request.subject) {
-            Subject.MATH -> m += "Counters, cubes or other objects students can move"
-            Subject.SCIENCE -> m += "Everyday objects for observing, and a place to record what students notice"
+            Subject.MATH -> m += domain?.materials ?: listOf("Counters, cubes or other objects students can move")
+            Subject.SCIENCE -> m += domain?.materials ?: listOf("Everyday objects for observing, and a place to record what students notice")
             Subject.ELA -> if (book == null) m += "One mentor text of your choice that fits the standard${idea.lens.text?.let { " (${it})" } ?: ""}"
             Subject.SOCIAL_STUDIES -> m += "A short source or text of your choice that fits the standard"
         }
@@ -128,7 +131,8 @@ object LessonBuilder {
     private fun tags(request: LessonRequest, resolution: Resolution, needs: CustomNeeds, idea: Idea): List<String> {
         val t = linkedSetOf(request.subject.label, request.grade.label, request.grade.band.label)
         resolution.book?.let { t += it.title; it.author?.let { a -> t += a }; it.info?.genre?.let { g -> t += g } }
-        resolution.standard?.let { t += it.shortCode; t += it.georgiaCode; if (resolution.book == null) t += it.focus }
+        resolution.pack?.let { t += it.title }
+        resolution.standard?.let { t += it.shortCode; t += it.georgiaCode; if (resolution.book == null && it.catalogued) t += it.focus }
         needs.themes.forEach { t += it }
         t += idea.lens.angle
         if (resolution.standard == null) Text.words(resolution.topic).filter { it.length > 3 && it !in STOP_FOCUS }.take(3).forEach { t += it }
@@ -152,6 +156,7 @@ object LessonBuilder {
     )
 
     internal fun taughtWords(resolution: Resolution): List<String> {
+        resolution.pack?.earlyWord?.let { w -> return (listOf(w) + FALLBACK_WORDS).distinct().take(2) }
         resolution.book?.let { book ->
             book.info?.earlyWords?.takeIf { it.isNotEmpty() }?.let { w -> return (w + FALLBACK_WORDS).distinct().take(2) }
             // A chapter book read to the youngest: trace and write two short character names from the book.
@@ -269,6 +274,113 @@ object LessonBuilder {
         return ladder.mapIndexed { i, level ->
             val (p, ans) = make(level, ladder.take(i).count { it == level })
             StudentItem(i + 1, when (level) { Bloom.ANALYZE -> ItemKind.DATA_TABLE; Bloom.UNDERSTAND -> ItemKind.SENTENCE_FRAME; else -> ItemKind.QUESTION }, p, level, ans)
+        }
+    }
+
+    /* ---------- Science, math and social studies: the subject's own concepts, not reading frames ---------- */
+
+    /** What a non-ELA lesson teaches: a concept pack's phases and terms, or the subject's generic routine with the topic dropped in. */
+    class DomainView(
+        val title: String,
+        val kind: String,
+        val phases: List<Phase>,
+        val terms: List<Term>,
+        val misconception: String?,
+        val correction: String?,
+        val materials: List<String>,
+        val modelTask: String,
+        val subject: Subject,
+        /** True when the content comes from a built-in concept pack, so its terms and phases are verified subject facts. */
+        val fromPack: Boolean,
+    ) {
+        val stepWord: String get() = when (kind) { "process" -> "phase"; "cycle" -> "stage"; else -> "step" }
+        private val stepWords: String get() = stepWord + "s"
+
+        fun directInstruction(standard: Standard?): String = buildString {
+            append("Introduce $title with a labeled model on the board. Teach the ${phases.size} $stepWords in order, naming each term as you go: ")
+            append(phases.mapIndexed { i, p -> "${i + 1}. ${p.name}: ${p.happens}" }.joinToString(" "))
+            append(" Key terms: ${terms.take(6).joinToString("; ") { "${it.word} (${it.meaning})" }}.")
+            if (misconception != null) append(" Address this common misconception directly: \"$misconception\" ${correction ?: ""}")
+            append(" Pause after each $stepWord to check understanding.")
+            if (standard != null && standard.catalogued) append(" Keep the standard in view: ${Text.clip(standard.description, 110)}")
+        }
+
+        fun guidedPractice(support: String?): String =
+            "Students build the model together: $modelTask Then, in groups, they complete a three-column table ($stepWord, what happens, what you would see) for every $stepWord, " +
+                "and check each row with the class before moving on. Start with items 1 to 3 as a group, then release students to try the rest. ${support ?: "Offer hints before answers."}"
+
+        fun exitTicket(): String {
+            val p = phases[phases.size / 2]
+            val t = termsFor(p).joinToString(" and ") { it.word }
+            return "Each student explains the $stepWord \"${p.name}\" in writing, using the terms $t, before leaving. Collect the tickets and sort them into got it, almost and not yet."
+        }
+
+        /** The terms that appear in a phase's own description (so a question names real vocabulary), else the first two. */
+        fun termsFor(p: Phase): List<Term> = terms.filter { t -> p.happens.lowercase().contains(t.word.lowercase().removeSuffix("s")) }.take(2).ifEmpty { terms.take(2) }
+    }
+
+    private fun domainView(request: LessonRequest, resolution: Resolution, grade: Grade, focus: String): DomainView? {
+        if (request.subject == Subject.ELA || resolution.book != null) return null
+        val younger = grade.band == GradeBand.K2 || grade.band == GradeBand.G35
+        val pack = resolution.pack
+        if (pack != null) {
+            return DomainView(pack.title, pack.kind, if (younger) pack.simple else pack.phases, pack.terms, pack.misconception, pack.correction, pack.materials, pack.modelTask, request.subject, true)
+        }
+        val topic = if (focus == "this topic") resolution.topic else focus
+        val phases = if (younger) GenericDomain.simple(request.subject, topic) else GenericDomain.phases(request.subject, topic)
+        val model = when (request.subject) {
+            Subject.SCIENCE -> "Draw and label a model that explains $topic, and say what evidence would test it."
+            Subject.MATH -> "Show the problem about $topic with a drawing or objects, then solve it."
+            else -> "Make a cause and effect chart about $topic from the source."
+        }
+        return DomainView(topic, "step", phases, GenericDomain.terms(request.subject), null, null, GenericDomain.materials(request.subject), model, request.subject, false)
+    }
+
+    /**
+     * A handout for science, math and social studies, climbing Bloom's levels at the grade's demand. Every item asks about the concept's own phases,
+     * terms and misconception, so a mitosis lesson asks about prophase and chromosomes, not about "a main character".
+     */
+    private fun domainItems(grade: Grade, d: DomainView): List<StudentItem> {
+        val band = grade.band
+        val ladder = BloomPlan.ladder(band, 6)
+        val short = grade.ordinal <= Grade.G3.ordinal
+        val names = d.phases.map { it.name }
+        val first = d.phases.first()
+        val second = d.phases[1 % d.phases.size]
+        val last = d.phases.last()
+        val strategy = d.kind == "strategy" || !d.fromPack
+        val terms = d.termsFor(second).map { it.word }
+        val termText = if (terms.size >= 2) "${terms[0]} and ${terms[1]}" else terms.firstOrNull() ?: "a key term"
+        val order = (if (names.size >= 3) names.drop(2) + names.take(2) else names.reversed()).take(5)
+        val sw = d.stepWord
+        val older = band == GradeBand.G68 || band == GradeBand.G912
+
+        fun make(level: Bloom): Pair<String, String> = when (level) {
+            Bloom.REMEMBER ->
+                (if (short) "Name the ${sw}s in order." else "List the ${sw}s of ${d.title} in order.") to "${names.joinToString(", then ")}."
+            Bloom.UNDERSTAND ->
+                (if (band == GradeBand.K2) "Tell what happens in $sw 2." else "Explain what happens in ${second.name}. Use the ${if (terms.size >= 2) "terms" else "term"} $termText.") to
+                    "${second.happens} Look for ${termText} used correctly."
+            Bloom.APPLY ->
+                (if (strategy) (if (short) "Make up a problem. Solve it with the ${sw}s." else "Make up a new problem about ${d.title} and solve it with the ${sw}s. Show each ${sw}.")
+                else if (band == GradeBand.K2) "Put in order: ${order.joinToString(", ")}." else "Put these ${sw}s in order: ${order.joinToString(", ")}.") to
+                    (if (strategy) "A new problem solved correctly with every $sw shown." else "${names.filter { it in order }.joinToString(", then ")}.")
+            Bloom.ANALYZE ->
+                (if (short) "Compare two ${sw}s. Make a table." else if (strategy) "Compare two ways to work on ${d.title}. Make a table: what is the same, what is different."
+                else "Compare ${first.name} and ${last.name} in a table: what happens and what you would see.") to
+                    (if (strategy) "At least two likenesses and two differences, each explained." else "${first.name}: ${first.happens} (${first.evidence}) ${last.name}: ${last.happens} (${last.evidence})")
+            Bloom.EVALUATE ->
+                (if (d.misconception != null && older) "A student claims: \"${d.misconception}\" Decide if it is correct. Give two reasons."
+                else if (older) "Which $sw of ${d.title} is hardest to explain? Give two reasons." else "Which $sw is most important? Give two reasons.") to
+                    (d.correction ?: "A clear choice supported by two reasons. Score the reasons, not the choice.")
+            Bloom.CREATE ->
+                (if (short) "Draw and label a model. Show each $sw." else if (band == GradeBand.G35) "Make a labeled model of ${d.title}. Show every $sw."
+                else "Design a labeled model of ${d.title} for a younger student. Show and explain every $sw.") to
+                    "A model that shows every $sw in order, uses the key terms correctly, and could be understood by someone new to the topic."
+        }
+        return ladder.mapIndexed { i, level ->
+            val (p, ans) = make(level)
+            StudentItem(i + 1, when (level) { Bloom.ANALYZE -> ItemKind.DATA_TABLE; Bloom.UNDERSTAND -> ItemKind.QUESTION; Bloom.CREATE -> ItemKind.DRAW_BOX; else -> ItemKind.QUESTION }, p, level, ans)
         }
     }
 

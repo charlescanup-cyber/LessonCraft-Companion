@@ -32,6 +32,8 @@ data class CreateUi(
     val customPrompt: String = "",
     /** Optional: the book or novel the lesson is built on. */
     val bookTitle: String = "",
+    /** Optional curriculum code (e.g. NGSS HS-LS1-4), kept separate from the topic box like the web app. */
+    val standardCode: String = "",
     val ideas: List<Idea> = emptyList(),
     val rounds: Int = 0,
     /** What the standard box was understood as ("Matched RL.1.2"), shown under the field. */
@@ -40,7 +42,7 @@ data class CreateUi(
     val busy: Boolean = false,
 ) {
     /** Either box, or both, is enough. */
-    val canSubmit: Boolean get() = standardInput.isNotBlank() || customPrompt.isNotBlank() || bookTitle.isNotBlank()
+    val canSubmit: Boolean get() = standardInput.isNotBlank() || customPrompt.isNotBlank() || bookTitle.isNotBlank() || standardCode.isNotBlank()
 }
 
 /**
@@ -56,9 +58,10 @@ class CreateViewModel(private val container: AppContainer) : ViewModel() {
     fun setSubject(s: Subject) = _ui.update { it.copy(subject = s, understood = null) }
     fun setStandard(v: String) = _ui.update { it.copy(standardInput = v.take(STANDARD_MAX), understood = null, error = null) }
     fun setBook(v: String) = _ui.update { it.copy(bookTitle = v.take(BOOK_MAX), understood = null, error = null) }
+    fun setStandardCode(v: String) = _ui.update { it.copy(standardCode = v.take(STANDARD_MAX), understood = null, error = null) }
     fun setCustom(v: String) = _ui.update { it.copy(customPrompt = v.take(CUSTOM_MAX), error = null) }
 
-    private fun request(s: CreateUi) = LessonRequest(s.grade, s.subject, s.standardInput.trim(), s.customPrompt.trim(), s.bookTitle.trim())
+    private fun request(s: CreateUi) = LessonRequest(s.grade, s.subject, s.standardInput.trim(), s.customPrompt.trim(), s.bookTitle.trim(), s.standardCode.trim())
 
     /** Three ideas. `again` keeps the history so the new round differs from every earlier one; a fresh start clears it. */
     fun getIdeas(again: Boolean, onReady: () -> Unit = {}) {

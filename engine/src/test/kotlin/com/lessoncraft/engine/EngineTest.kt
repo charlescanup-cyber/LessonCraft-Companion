@@ -372,3 +372,50 @@ class CodecTest {
         assertTrue(back.items.any { it.visual is Visual.Dots })
     }
 }
+
+class DomainTest {
+    private fun lesson(g: Grade, s: Subject, topic: String, code: String = ""): Lesson {
+        val r = LessonRequest(g, s, topic, "", "", code)
+        val res = StandardResolver.resolve(r)
+        return LessonBuilder.build(r, res, IdeaEngine.generate(r, res, emptyList()).first())
+    }
+
+    private fun text(l: Lesson) = (l.sequence.map { it.description } + l.items.map { it.prompt } + l.materials).joinToString("\n")
+
+    @Test fun standardCodeFieldResolvesNgss() {
+        val res = StandardResolver.resolve(LessonRequest(Grade.G10, Subject.SCIENCE, "Process mitosis", "", "", "HS-LS1-4"))
+        assertEquals("HS-LS1-4", res.standard?.ccss)
+        assertTrue(LessonRequest(Grade.G10, Subject.SCIENCE, standardCode = "HS-LS1-4").hasInput)
+    }
+
+    @Test fun mitosisTeachesPhasesAndTermsNotElaFrames() {
+        for (g in listOf(Grade.G4, Grade.G7, Grade.G10)) {
+            val t = text(lesson(g, Subject.SCIENCE, "Process mitosis", if (g == Grade.G10) "HS-LS1-4" else ""))
+            assertTrue("$g phases", t.contains("anaphase", ignoreCase = true) || g == Grade.G4)
+            assertTrue("$g prophase/start", t.contains("prophase", ignoreCase = true) || g == Grade.G4 || t.contains("chromosome", ignoreCase = true))
+            assertFalse("$g ELA frame", t.contains("Use your text"))
+            assertFalse("$g ELA frame", t.contains("Finish:"))
+        }
+    }
+
+    @Test fun uncataloguedCodeWorksAtEveryGrade() {
+        for (g in Grade.entries) {
+            val l = lesson(g, Subject.SCIENCE, "Plate tectonics", "HS-ESS2-1")
+            assertTrue(l.standardLabel.contains("HS-ESS2-1"))
+            assertEquals(l.objective.isNotBlank(), true)
+        }
+    }
+
+    @Test fun customStandardSurvivesTheCodec() {
+        val l = lesson(Grade.G10, Subject.SCIENCE, "Plate tectonics", "HS-ESS2-1")
+        val back = LessonCodec.decode(LessonCodec.encode(l))
+        assertEquals("HS-ESS2-1", back.standard?.ccss)
+    }
+
+    @Test fun nonElaLessonsKeepWorkingAcrossGradesAndSubjects() {
+        for (g in Grade.entries) for (s in listOf(Subject.SCIENCE, Subject.MATH, Subject.SOCIAL_STUDIES)) {
+            val l = lesson(g, s, when (s) { Subject.SCIENCE -> "mitosis"; Subject.MATH -> "comparing fractions"; else -> "community helpers" })
+            assertTrue(l.items.isNotEmpty())
+        }
+    }
+}

@@ -11,7 +11,22 @@ object StandardsCatalog {
     private fun math(code: String, grade: Grade, strand: String, description: String, vararg keywords: String) =
         Standard("CCSS.MATH.CONTENT.$code", description, grade, Subject.MATH, strand, keywords.toList())
 
+    /** A Next Generation Science Standard. The standard is offered to the whole band it belongs to (HS to grades 9-12, MS to 6-8). */
+    private fun ngss(code: String, grade: Grade, strand: String, description: String, vararg keywords: String) =
+        Standard(code, description, grade, Subject.SCIENCE, strand, keywords.toList())
+
     val all: List<Standard> = listOf(
+        ngss("3-LS1-1", Grade.G3, "From Molecules to Organisms", "Develop models to describe that organisms have unique and diverse life cycles but all have in common birth, growth, reproduction, and death.", "life cycles", "life cycle", "organisms", "growth", "reproduction"),
+        ngss("MS-LS1-1", Grade.G6, "From Molecules to Organisms", "Conduct an investigation to provide evidence that living things are made of cells; either one cell or many different numbers and types of cells.", "cells", "cell theory", "living things", "microscope"),
+        ngss("MS-LS1-2", Grade.G6, "From Molecules to Organisms", "Develop and use a model to describe the function of a cell as a whole and ways parts of cells contribute to the function.", "cell parts", "organelles", "cell function", "cells"),
+        ngss("MS-LS3-2", Grade.G7, "Heredity", "Develop and use a model to describe why asexual reproduction results in offspring with identical genetic information and sexual reproduction results in offspring with genetic variation.", "asexual reproduction", "sexual reproduction", "genetic variation", "mitosis", "meiosis"),
+        ngss("MS-ESS1-1", Grade.G8, "Earth's Place in the Universe", "Develop and use a model of the Earth-sun-moon system to describe the cyclic patterns of lunar phases, eclipses of the sun and moon, and seasons.", "moon phases", "lunar phases", "eclipses", "seasons", "earth-sun-moon"),
+        ngss("HS-LS1-1", Grade.G9, "From Molecules to Organisms", "Construct an explanation based on evidence for how the structure of DNA determines the structure of proteins which carry out the essential functions of life through systems of specialized cells.", "dna", "proteins", "specialized cells", "structure and function"),
+        ngss("HS-LS1-2", Grade.G9, "From Molecules to Organisms", "Develop and use a model to illustrate the hierarchical organization of interacting systems that provide specific functions within multicellular organisms.", "organ systems", "hierarchical organization", "multicellular organisms", "tissues"),
+        ngss("HS-LS1-4", Grade.G9, "From Molecules to Organisms", "Use a model to illustrate the role of cellular division (mitosis) and differentiation in producing and maintaining a complex organism.", "mitosis", "cell division", "cellular division", "differentiation", "cell cycle", "chromosomes"),
+        ngss("HS-LS1-5", Grade.G9, "From Molecules to Organisms", "Use a model to illustrate how photosynthesis transforms light energy into stored chemical energy.", "photosynthesis", "light energy", "chemical energy", "chloroplast"),
+        ngss("HS-LS1-7", Grade.G9, "From Molecules to Organisms", "Use a model to illustrate that cellular respiration is a chemical process whereby the bonds of food molecules and oxygen molecules are broken and the bonds in new compounds are formed resulting in a net transfer of energy.", "cellular respiration", "atp", "mitochondria", "energy transfer"),
+        ngss("HS-LS3-1", Grade.G9, "Heredity", "Ask questions to clarify relationships about the role of DNA and chromosomes in coding the instructions for characteristic traits passed from parents to offspring.", "dna", "chromosomes", "traits", "inheritance", "heredity"),
         ela("RL.K.1", Grade.K, "Reading Literature", "With prompting and support, ask and answer questions about key details in a text.", "key details", "questions", "key details", "story"),
         ela("RL.K.2", Grade.K, "Reading Literature", "With prompting and support, retell familiar stories, including key details.", "retelling", "retell", "retelling", "sequence", "story", "beginning", "middle", "end"),
         ela("RL.K.3", Grade.K, "Reading Literature", "With prompting and support, identify characters, settings, and major events in a story.", "story elements", "characters", "setting", "events", "story elements"),
@@ -65,7 +80,9 @@ object StandardsCatalog {
         math("4.NF.A.2", Grade.G4, "Number and Operations - Fractions", "Compare two fractions with different numerators and different denominators; record the results of comparisons with symbols >, =, or <, and justify the conclusions.", "comparing fractions", "fractions", "compare", "comparing fractions", "denominator", "numerator"),
     )
 
-    fun forGradeAndSubject(grade: Grade, subject: Subject): List<Standard> = all.filter { it.grade == grade && it.subject == subject }
+    /** Standards for a grade and subject. Science standards belong to a band (HS-LS1-4 is for every high-school grade); the rest to one grade. */
+    fun forGradeAndSubject(grade: Grade, subject: Subject): List<Standard> =
+        all.filter { it.subject == subject && if (subject == Subject.SCIENCE) it.band == grade.band && (grade.band != GradeBand.G35 && grade.band != GradeBand.K2 || it.grade == grade) else it.grade == grade }
 }
 
 /** The outcome of reading the "Topic / standard" box. */
@@ -78,6 +95,8 @@ data class Resolution(
     val topic: String,
     /** The book the request is about, when there is one: its title is then the lesson's subject matter. */
     val book: BookRef? = null,
+    /** Subject knowledge for the topic (phases, terms, misconception), when the app has it. */
+    val pack: ConceptPack? = null,
 )
 
 object StandardResolver {
@@ -93,8 +112,30 @@ object StandardResolver {
         return scored ?: lit.firstOrNull { it.shortCode.endsWith(".2") } ?: lit.first()
     }
 
+    /** The standard a typed code names: from the catalog, or (for a code the catalog does not have) the code itself, used as given with no wording invented. */
+    private fun fromCode(code: String, request: LessonRequest): Standard {
+        val n = normalizeCode(code)
+        StandardsCatalog.all.firstOrNull { normalizeCode(it.ccss) == n || it.shortCode.uppercase() == n || it.georgiaCode.uppercase() == n }?.let { return it }
+        return Standard(code.trim(), "the standard ${code.trim()}", request.grade, request.subject, "Custom standard", emptyList(), catalogued = false)
+    }
+
     fun resolve(request: LessonRequest): Resolution {
+        val base = resolveCore(request)
+        // Subject knowledge comes from the topic, the custom instructions and the standard's own keywords; ELA is not given a concept pack.
+        val pack = if (request.subject == Subject.ELA || base.book != null) null else DomainPacks.find(request, base.standard)
+        return if (pack != null) base.copy(pack = pack) else base
+    }
+
+    private fun resolveCore(request: LessonRequest): Resolution {
         val input = request.standardInput.trim()
+        val typedCode = request.standardCode.trim()
+        // A standard typed in its own field always wins: it is exactly the standard the lesson must address. The topic box stays the topic.
+        if (typedCode.isNotEmpty()) {
+            val std = fromCode(typedCode, request)
+            val book = BookResolver.resolve(request)
+            val topic = book?.title ?: input.ifEmpty { if (std.catalogued) Text.decap(std.description.removeSuffix(".")) else Text.clip(request.customPrompt.trim().replace(Regex("\\s+"), " "), 80).ifEmpty { std.ccss } }
+            return Resolution(std, true, topic, book)
+        }
         val pool = StandardsCatalog.forGradeAndSubject(request.grade, request.subject)
         val book = BookResolver.resolve(request)
 

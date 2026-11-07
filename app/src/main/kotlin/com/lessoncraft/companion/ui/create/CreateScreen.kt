@@ -73,6 +73,22 @@ fun CreateScreen(vm: CreateViewModel, onIdeas: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            // Optional curriculum code, like the web app's Standard field (e.g. NGSS HS-LS1-4, CCSS 4.NF.A.2, ELAGSE4RL2).
+            OutlinedTextField(
+                value = ui.standardCode,
+                onValueChange = vm::setStandardCode,
+                label = { Text("Standard / Curriculum Code (optional)") },
+                placeholder = { Text("HS-LS1-4, 4.NF.A.2 or ELAGSE4RL2") },
+                supportingText = { Text("Used exactly as typed if it isn't in the built-in catalog.") },
+                singleLine = true,
+                trailingIcon = {
+                    if (ui.standardCode.isNotEmpty()) IconButton(onClick = { vm.setStandardCode("") }) { Icon(Icons.Default.Close, contentDescription = "Clear standard code") }
+                },
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Next),
+                keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
             // Optional: the book the lesson is built on. A title typed in the box above ("The Outsiders by S. E. Hinton") is picked up too.
             OutlinedTextField(
                 value = ui.bookTitle,

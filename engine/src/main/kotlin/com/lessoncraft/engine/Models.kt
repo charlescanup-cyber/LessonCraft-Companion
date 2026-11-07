@@ -51,8 +51,10 @@ data class LessonRequest(
     val customPrompt: String = "",
     /** Optional: the book or novel the lesson is built on ("The Outsiders"). It can also be typed in the topic box as "Title by Author". */
     val bookTitle: String = "",
+    /** Optional: an official standard or curriculum code ("HS-LS1-4", "RL.1.2", "ELAGSE1RL2"), kept apart from the topic so a topic like "Process mitosis" and its standard can both be given. */
+    val standardCode: String = "",
 ) {
-    val hasInput: Boolean get() = standardInput.isNotBlank() || customPrompt.isNotBlank() || bookTitle.isNotBlank()
+    val hasInput: Boolean get() = standardInput.isNotBlank() || customPrompt.isNotBlank() || bookTitle.isNotBlank() || standardCode.isNotBlank()
 }
 
 /** An official standard from the built-in catalog. */
@@ -63,25 +65,26 @@ data class Standard(
     val subject: Subject,
     val strand: String,
     val keywords: List<String>,
+    /** False for a code the teacher typed that is not in the built-in catalog: it is used as given, with no wording invented for it. */
+    val catalogued: Boolean = true,
+    /** The grade band the standard covers. A standard anchored at one grade (HS-LS1-4 at grade 9) is offered to its whole band. */
+    val band: GradeBand = grade.band,
 ) {
     /** The thing the standard is about, in a few plain words ("retelling", "fractions"): used in student prompts and titles. */
-    val focus: String get() = keywords.first()
+    val focus: String get() = keywords.firstOrNull() ?: "this topic"
 
     /** "RL.1.2" */
     val shortCode: String get() = ccss.removePrefix("CCSS.ELA-LITERACY.").removePrefix("CCSS.MATH.CONTENT.")
 
-    /** Georgia's code for the same standard: ELAGSE1RL2, MGSE1.OA.1 (Georgia drops the cluster letter in math). */
+    /** Georgia's code for the same standard: ELAGSE1RL2, MGSE1.OA.1 (Georgia drops the cluster letter in math). Other codes (NGSS, a typed code) are used as they are. */
     val georgiaCode: String
-        get() = when (subject) {
-            Subject.ELA -> {
-                val p = shortCode.split(".")
-                "ELAGSE${p[1]}${p[0]}${p[2]}"
+        get() {
+            val p = shortCode.split(".")
+            return when {
+                subject == Subject.ELA && p.size == 3 && p[0] in setOf("RL", "RI", "RF", "W", "SL", "L") -> "ELAGSE${p[1]}${p[0]}${p[2]}"
+                subject == Subject.MATH && p.size == 4 && p[0].matches(Regex("K|\\d+")) -> "MGSE${p[0]}.${p[1]}.${p[3]}"
+                else -> ccss
             }
-            Subject.MATH -> {
-                val p = shortCode.split(".")
-                "MGSE${p[0]}.${p[1]}.${p[3]}"
-            }
-            else -> ccss
         }
 }
 
@@ -149,5 +152,5 @@ data class Lesson(
     val book: BookRef? = null,
 ) {
     val totalMinutes: Int get() = sequence.sumOf { it.minutes }
-    val standardLabel: String get() = standard?.let { "${it.georgiaCode} (${it.ccss})" } ?: "No catalog standard matched"
+    val standardLabel: String get() = standard?.let { if (it.georgiaCode == it.ccss) it.ccss else "${it.georgiaCode} (${it.ccss})" } ?: "No catalog standard matched"
 }

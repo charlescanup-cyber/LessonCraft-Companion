@@ -9,7 +9,7 @@ object LessonCodec {
         mapOf(
             "v" to 1,
             "title" to l.title, "grade" to l.grade.name, "subject" to l.subject.name,
-            "standard" to l.standard?.ccss, "topic" to l.topic, "customNotes" to l.customNotes,
+            "standard" to l.standard?.ccss, "standardDescription" to l.standard?.takeIf { !it.catalogued }?.description, "topic" to l.topic, "customNotes" to l.customNotes,
             "objective" to l.objective, "objectiveBloom" to l.objectiveBloom.name,
             "materials" to l.materials,
             "udlPlan" to udl(l.udlPlan),
@@ -39,7 +39,8 @@ object LessonCodec {
             title = s(m, "title"),
             grade = Grade.valueOf(s(m, "grade")),
             subject = Subject.valueOf(s(m, "subject")),
-            standard = ccss?.let { c -> StandardsCatalog.all.firstOrNull { it.ccss == c } },
+            // A standard typed in that the catalog does not have is rebuilt from its saved code, so saving and reopening never loses it.
+            standard = ccss?.let { c -> StandardsCatalog.all.firstOrNull { it.ccss == c } ?: Standard(c, (m["standardDescription"] as? String) ?: "the standard $c", Grade.valueOf(s(m, "grade")), Subject.valueOf(s(m, "subject")), "Custom standard", emptyList(), catalogued = false) },
             topic = s(m, "topic"),
             customNotes = s(m, "customNotes"),
             objective = s(m, "objective"),

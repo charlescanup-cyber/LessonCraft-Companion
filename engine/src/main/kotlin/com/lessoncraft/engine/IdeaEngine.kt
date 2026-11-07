@@ -36,6 +36,14 @@ object IdeaEngine {
         "a farmers' market", "a construction site", "a detective agency", "a camping trip", "a bakery", "a music studio", "a post office", "an inventor's workshop",
     )
 
+    /** What students work from in a science lesson: data and descriptions, not a story. */
+    private val SCIENCE_SOURCES = listOf(
+        "a data table from an investigation", "a written description of a model", "a short informational article", "a lab procedure to follow and improve",
+        "a set of student observations", "a diagram described in words",
+    )
+
+    private val MATH_SOURCES = listOf("a set of worked examples", "a real-world problem", "a table of values", "a student's solution with a mistake to find")
+
     private val TEXTS = listOf(
         "a short read-aloud story", "a short nonfiction passage", "a poem, song lyric or chant", "a data table or survey results",
         "a real document such as a letter, schedule or label", "a short scene with dialogue", "a how-to text", "a fable or folktale",
@@ -153,7 +161,8 @@ object IdeaEngine {
     fun generate(request: LessonRequest, resolution: Resolution, seen: List<SeenIdea>, count: Int = 3): List<Idea> {
         require(request.hasInput) { "Enter a topic or standard, or describe the lesson." }
         val needs = CustomPrompt.read(request.customPrompt)
-        val usesTexts = request.subject != Subject.MATH
+        val pool = when (request.subject) { Subject.ELA, Subject.SOCIAL_STUDIES -> TEXTS; Subject.SCIENCE -> SCIENCE_SOURCES; Subject.MATH -> MATH_SOURCES }
+        val usesTexts = true
         val used = seen.map { it.lens }
         val key = "${request.grade}|${request.subject}|${request.standardInput}|${request.customPrompt}|${request.bookTitle}|${seen.size}"
         val book = resolution.book
@@ -174,7 +183,7 @@ object IdeaEngine {
             val angles = fresh(ANGLES.map { it.name }, used.map { it.angle }, count, recent.map { it.angle }).shuffled(rng).take(count)
             val hooks = fresh(HOOKS, used.map { it.hook }, count, recent.map { it.hook }).shuffled(rng).take(count)
             val themes = fresh(THEMES, used.map { it.theme }, count, recent.map { it.theme }).shuffled(rng).take(count)
-            val texts = if (usesTexts) fresh(TEXTS, used.mapNotNull { it.text }, count, recent.mapNotNull { it.text }).shuffled(rng).take(count) else emptyList()
+            val texts = if (usesTexts) fresh(pool, used.mapNotNull { it.text }, count, recent.mapNotNull { it.text }).shuffled(rng).take(count) else emptyList()
             val titleStyles = TITLES.indices.shuffled(rng).take(count)
 
             val drafts = (0 until count).map { i ->
@@ -184,12 +193,14 @@ object IdeaEngine {
                 val setting = needs.themes.getOrNull(i % maxOf(needs.themes.size, 1)) ?: if (request.standardInput.isNotBlank() && resolution.exact && needs.themes.isEmpty()) themes[i] else null
                 val standardNote = resolution.standard?.let { " It addresses ${it.georgiaCode} (${it.ccss})." } ?: ""
                 val textNote = texts.getOrNull(i)?.let { " Students work with $it." } ?: ""
+                val pack = resolution.pack
+                val conceptNote = pack?.let { " Key ideas: ${it.phases.joinToString(", ") { p -> p.name.lowercase() }}. Vocabulary includes ${it.terms.take(4).joinToString(", ") { t -> t.word }}." } ?: ""
                 val settingNote = setting?.let { " The context is $it." } ?: ""
                 val supportNote = needs.supports.firstOrNull()?.let { " Built for your students: ${Text.decap(it)}" } ?: ""
                 val title = Text.clip(TITLES[titleStyles[i]](short(topic), Text.cap(angle.name)), 70)
-                val hook = hookLine(hooks[i], topic)
+                val hook = resolution.pack?.hooks?.let { it[(i + seen.size) % it.size] } ?: hookLine(hooks[i], topic, request.subject)
                 val summary = "Students ${angle.doing}, and finish with ${angle.product}. " +
-                    "They build toward: ${Text.decap(resolution.standard?.description?.removeSuffix(".") ?: resolution.topic)}.$standardNote$textNote$settingNote$supportNote"
+                    "They build toward: ${Text.decap(resolution.standard?.description?.removeSuffix(".") ?: resolution.topic)}.$standardNote$conceptNote$textNote$settingNote$supportNote"
                 Idea(title, summary.trim(), hook, Lens(angle.name, hooks[i], setting ?: themes[i], texts.getOrNull(i)))
             }
 
@@ -203,13 +214,14 @@ object IdeaEngine {
 
     private fun short(topic: String): String = topic.split(" ").take(5).joinToString(" ").trimEnd(',', '.', ';')
 
-    private fun hookLine(style: String, topic: String): String = when {
+    private fun hookLine(style: String, topic: String, subject: Subject = Subject.ELA): String = when {
         style.startsWith("a surprising question") -> "Open with a question that has no obvious answer: what would happen if ${Text.decap(short(topic))} did not work the way we expect?"
         style.startsWith("a mystery object") -> "Reveal a covered object linked to ${Text.decap(short(topic))} and let students guess what it has to do with today."
         style.startsWith("a 30-second") -> "Act out a quick skit about ${Text.decap(short(topic))} with a deliberate mistake, and have students catch it."
         style.startsWith("a would-you-rather") -> "Pose a would-you-rather choice about ${Text.decap(short(topic))} and make students justify their pick."
         style.startsWith("a startling") -> "Read aloud one startling fact or number about ${Text.decap(short(topic))} and ask what it makes them wonder."
         style.startsWith("a quick physical") -> "Start with a 30-second physical challenge, then connect it to ${Text.decap(short(topic))}."
+        style.startsWith("the first line") && subject != Subject.ELA -> "Show a surprising photo or object linked to ${Text.decap(short(topic))} and have students write what they notice and wonder."
         style.startsWith("the first line") -> "Read the first line of a story about ${Text.decap(short(topic))} and stop: students predict the ending."
         style.startsWith("two truths") -> "Share two truths and a lie about ${Text.decap(short(topic))}; students vote and defend."
         style.startsWith("a broken model") -> "Show a model of ${Text.decap(short(topic))} with an error built in; students find and repair it."
